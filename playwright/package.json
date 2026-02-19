@@ -1,0 +1,13 @@
+{
+    "name": "genai-ecom-playwright",
+    "version": "1.0.0",
+    "description": "Playwright tests for genai_training ecommerce store",
+    "scripts": {
+        "test": "npx playwright test",
+        "test:ui": "npx playwright test --ui",
+        "test:headed": "npx playwright test --headed"
+    },
+    "devDependencies": {
+        "@playwright/test": "^1.40.0"
+    }
+}

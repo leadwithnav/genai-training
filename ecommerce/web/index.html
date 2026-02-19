@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GenAI Store</title>
+    <link rel="stylesheet" href="style.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
+</head>
+
+<body>
+    <header>
+        <div class="container">
+            <h1>GenAI Store</h1>
+            <nav>
+                <a href="#" onclick="showPage('home')">Products</a>
+                <a href="#" onclick="showPage('orders')">My Orders</a>
+                <a href="#" onclick="showPage('wallet')">Wallet</a>
+                <a href="#" onclick="showPage('cart')">Cart (<span id="cart-count">0</span>)</a>
+            </nav>
+        </div>
+    </header>
+
+    <main class="container" id="main-content">
+        <!-- Products Page -->
+        <section id="home-page" class="active">
+            <div class="hero">
+                <h2>Future Tech for Testers</h2>
+                <p>Equip yourself with the latest in quantum and neural interface technology.</p>
+            </div>
+            <div id="product-list" class="grid">
+                <!-- Products injected by JS -->
+                <div class="loader">Loading products...</div>
+            </div>
+        </section>
+
+        <!-- Cart Page -->
+        <section id="cart-page" class="hidden">
+            <h2>Your Cart</h2>
+            <div id="cart-items">
+                <!-- Cart items injected by JS -->
+                <p>Your cart is empty.</p>
+            </div>
+            <div class="checkout-summary">
+                <h3>Total: $<span id="cart-total">0.00</span></h3>
+                <button onclick="checkout()" class="btn-primary">Proceed to Checkout</button>
+            </div>
+        </section>
+
+        <!-- Orders Page -->
+        <section id="orders-page" class="hidden">
+            <h2>My Orders</h2>
+            <div id="orders-list">
+                <div class="loader">Loading orders...</div>
+            </div>
+        </section>
+
+        <!-- Wallet Page -->
+        <section id="wallet-page" class="hidden">
+            <h2>My Wallet</h2>
+            <div class="wallet-card">
+                <h3>Current Balance</h3>
+                <div class="balance">$<span id="wallet-balance">0.00</span></div>
+                <div class="add-funds">
+                    <input type="number" id="add-amount" placeholder="Amount" min="1">
+                    <button onclick="addFunds()" class="btn-primary">Add Funds</button>
+                </div>
+            </div>
+        </section>
+
+        <!-- Checkout Success Page -->
+        <section id="success-page" class="hidden">
+            <div class="success-message">
+                <h2>Order Confirmed!</h2>
+                <p>Thank you for your purchase. Your order ID is <span id="order-id">#12345</span>.</p>
+                <button onclick="showPage('home')" class="btn-secondary">Continue Shopping</button>
+            </div>
+        </section>
+    </main>
+
+    <!-- Checkout Modal -->
+    <div id="checkout-modal" class="modal hidden">
+        <div class="modal-content">
+            <h3>Confirm Purchase</h3>
+            <div class="checkout-details">
+                <p>Current Balance: <span class="amount" id="modal-balance">$0.00</span></p>
+                <p>Total to Deduct: <span class="amount minus" id="modal-total">-$0.00</span></p>
+                <hr>
+                <p class="final">Remaining Balance: <span class="amount" id="modal-remaining">$0.00</span></p>
+            </div>
+            <div class="modal-actions">
+                <button onclick="closeModal()" class="btn-secondary">Cancel</button>
+                <button onclick="confirmCheckout()" id="btn-confirm-pay" class="btn-primary">Confirm Payment</button>
+                <button onclick="goToWallet()" id="btn-add-funds" class="btn-primary hidden">Add Funds</button>
+            </div>
+        </div>
+    </div>
+
+    <footer>
+        <p>&copy; 2024 GenAI Tester Training. All rights reserved.</p>
+    </footer>
+
+    <script src="app.js"></script>
+</body>
+
+</html>

@@ -1,0 +1,45 @@
+version: '3.8'
+
+services:
+  web:
+    build: ./web
+    ports:
+      - "3000:80"
+    depends_on:
+      - api
+    container_name: ecommerce-web
+    restart: always
+
+  api:
+    build: ./api
+    ports:
+      - "8081:8080"
+    environment:
+      - DB_HOST=db
+      - DB_USER=postgres
+      - DB_PASSWORD=password
+      - DB_NAME=ecommerce_db
+      - PORT=8080
+    depends_on:
+      db:
+        condition: service_healthy
+    container_name: ecommerce-api
+    restart: always
+
+  db:
+    image: postgres:15-alpine
+    ports:
+      - "5432:5432"
+    environment:
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=password
+      - POSTGRES_DB=ecommerce_db
+    volumes:
+      - ./db/init.sql:/docker-entrypoint-initdb.d/init.sql
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U postgres -d ecommerce_db" ]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    container_name: ecommerce-db
+    restart: always

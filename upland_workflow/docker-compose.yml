@@ -1,0 +1,53 @@
+version: '3.8'
+
+services:
+  web:
+    build: ./web
+    ports:
+      - "3002:80"
+    depends_on:
+      - api
+    container_name: upland-web
+
+  api:
+    build: ./api
+    ports:
+      - "8082:8080"
+    environment:
+      - DB_HOST=db
+      - DB_USER=upland_user
+      - DB_PASSWORD=upland_pass
+      - DB_NAME=upland_workflow
+      - PORT=8080
+    depends_on:
+      db:
+        condition: service_healthy
+    container_name: upland-api
+
+  db:
+    image: postgres:15-alpine
+    ports:
+      - "5434:5432"
+    environment:
+      - POSTGRES_USER=upland_user
+      - POSTGRES_PASSWORD=upland_pass
+      - POSTGRES_DB=upland_workflow
+    volumes:
+      - ./db/init.sql:/docker-entrypoint-initdb.d/init.sql
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U upland_user -d upland_workflow" ]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    container_name: upland-db
+
+  pgadmin:
+    image: dpage/pgadmin4
+    environment:
+      PGADMIN_DEFAULT_EMAIL: admin@upland.com
+      PGADMIN_DEFAULT_PASSWORD: admin
+    ports:
+      - "5052:80"
+    depends_on:
+      - db
+    container_name: upland-pgadmin

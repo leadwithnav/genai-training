@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Upland Document Workflow</title>
+    <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;500;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="style.css">
+</head>
+
+<body>
+    <header>
+        <div class="header-content">
+            <h1>Upland Workflow</h1>
+            <nav>
+                <button onclick="showPage('inbox')">Inbox</button>
+                <button onclick="showPage('upload')">Upload</button>
+            </nav>
+        </div>
+    </header>
+
+    <main id="main-content">
+        <!-- Inbox / Queue -->
+        <section id="inbox-page" class="page active">
+            <div class="toolbar">
+                <h2>Document Queue</h2>
+                <div class="filters">
+                    <button onclick="filterStatus('New')" class="filter-btn active" data-status="New">New</button>
+                    <button onclick="filterStatus('Processing')" class="filter-btn"
+                        data-status="Processing">Processing</button>
+                    <button onclick="filterStatus('NeedsReview')" class="filter-btn"
+                        data-status="NeedsReview">Review</button>
+                    <button onclick="filterStatus('Approved')" class="filter-btn"
+                        data-status="Approved">Approved</button>
+                    <button onclick="filterStatus('Delivered')" class="filter-btn"
+                        data-status="Delivered">Delivered</button>
+                </div>
+            </div>
+            <div id="document-list" class="list-container">
+                <!-- Injected via JS -->
+                <div class="loading">Loading...</div>
+            </div>
+        </section>
+
+        <!-- Upload -->
+        <section id="upload-page" class="page hidden">
+            <div class="form-card" style="position: relative;">
+                <button type="button" onclick="showPage('inbox')" class="btn-close" title="Cancel">&times;</button>
+                <h2>Upload New Document</h2>
+                <form onsubmit="handleUpload(event)">
+                    <div class="form-group">
+                        <label>Title / Filename</label>
+                        <input type="text" id="upload-title" required placeholder="e.g. Invoice-101.pdf">
+                    </div>
+                    <div class="form-group">
+                        <label>Vendor</label>
+                        <input type="text" id="upload-vendor" required placeholder="e.g. Acme Corp">
+                    </div>
+                    <div class="form-group">
+                        <label>Amount</label>
+                        <input type="number" id="upload-amount" step="0.01" required placeholder="0.00">
+                    </div>
+                    <div class="form-group">
+                        <label>Date</label>
+                        <input type="date" id="upload-date" required>
+                    </div>
+                    <button type="submit" class="btn-primary">Upload & Process</button>
+                </form>
+            </div>
+        </section>
+
+        <!-- Details -->
+        <section id="detail-page" class="page hidden">
+            <button onclick="showPage('inbox')" class="btn-back">← Back to Inbox</button>
+            <div class="detail-layout">
+                <div class="detail-card">
+                    <div class="detail-header">
+                        <h2 id="detail-title">Document Title</h2>
+                        <span id="detail-status" class="status-badge">New</span>
+                    </div>
+                    <div class="meta-grid">
+                        <div>
+                            <label>Vendor</label>
+                            <p id="detail-vendor">-</p>
+                        </div>
+                        <div>
+                            <label>Amount</label>
+                            <p id="detail-amount">-</p>
+                        </div>
+                        <div>
+                            <label>Created</label>
+                            <p id="detail-date">-</p>
+                        </div>
+                    </div>
+
+                    <hr>
+                    <h3>Extracted Data (AI)</h3>
+                    <div class="meta-grid">
+                        <div>
+                            <label>Invoice #</label>
+                            <p id="extract-inv">-</p>
+                        </div>
+                        <div>
+                            <label>Confidence</label>
+                            <p id="extract-conf">-</p>
+                        </div>
+                    </div>
+
+                    <div class="actions" id="workflow-actions">
+                        <!-- Actions injected based on status -->
+                    </div>
+                </div>
+
+                <div class="audit-card">
+                    <h3>Audit Log</h3>
+                    <ul id="audit-list">
+                        <!-- Audit logs injected -->
+                    </ul>
+                </div>
+            </div>
+        </section>
+    </main>
+
+    <script src="app.js"></script>
+</body>
+
+</html>

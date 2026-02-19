@@ -1,0 +1,76 @@
+{
+    "info": {
+        "name": "GenAI SUT API",
+        "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+    },
+    "item": [
+        {
+            "name": "Health Check",
+            "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                    "raw": "http://localhost:8081/health",
+                    "protocol": "http",
+                    "host": [
+                        "localhost"
+                    ],
+                    "port": "8081",
+                    "path": [
+                        "health"
+                    ]
+                }
+            },
+            "response": []
+        },
+        {
+            "name": "Get Products",
+            "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                    "raw": "http://localhost:8081/api/products",
+                    "protocol": "http",
+                    "host": [
+                        "localhost"
+                    ],
+                    "port": "8081",
+                    "path": [
+                        "api",
+                        "products"
+                    ]
+                }
+            },
+            "response": []
+        },
+        {
+            "name": "Add to Cart",
+            "request": {
+                "method": "POST",
+                "header": [
+                    {
+                        "key": "Content-Type",
+                        "value": "application/json"
+                    }
+                ],
+                "body": {
+                    "mode": "raw",
+                    "raw": "{\n    \"sessionId\": \"test-session-1\",\n    \"productId\": 1,\n    \"quantity\": 2\n}"
+                },
+                "url": {
+                    "raw": "http://localhost:8081/api/cart",
+                    "protocol": "http",
+                    "host": [
+                        "localhost"
+                    ],
+                    "port": "8081",
+                    "path": [
+                        "api",
+                        "cart"
+                    ]
+                }
+            },
+            "response": []
+        }
+    ]
+}
