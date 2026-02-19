@@ -6,10 +6,31 @@ if (-not ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdenti
 $toolsDir = "C:\Tools"
 if (-not (Test-Path $toolsDir)) { New-Item -ItemType Directory -Force -Path $toolsDir | Out-Null }
 
-function Install-Winget {
+# --- Ensure Package Manager (Chocolatey) ---
+if (-not (Get-Command choco -ErrorAction SilentlyContinue)) {
+    Write-Host "Chocolatey not found. Installing..." -ForegroundColor Yellow
+    Set-ExecutionPolicy Bypass -Scope Process -Force; 
+    [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.ServicePointManager]::SecurityProtocol -bor 3072; 
+    Invoke-Expression ((New-Object System.Net.WebClient).DownloadString('https://community.chocolatey.org/install.ps1'))
+    
+    # Reload PATH for current session
+    $env:Path = [System.Environment]::GetEnvironmentVariable("Path", "Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path", "User")
+    if (Get-Command choco -ErrorAction SilentlyContinue) {
+        Write-Host " Chocolatey installed successfully." -ForegroundColor Green
+    }
+    else {
+        Write-Warning " Failed to install Chocolatey. Manual installation required."
+    }
+}
+else {
+    Write-Host "Found Chocolatey." -ForegroundColor Green
+}
+
+function Install-Package {
     param (
-        [string]$Id, 
         [string]$Name,
+        [string]$WingetId,
+        [string]$ChocoId,
         [string]$CommandCheck = $null
     )
     Write-Host "Checking $Name..." -NoNewline
@@ -20,29 +41,40 @@ function Install-Winget {
         return
     }
 
-    # 2. Check via Winget
+    # 2. Try Winget
     if (Get-Command winget -ErrorAction SilentlyContinue) {
-        $list = winget list -e --id $Id 2>$null
-        if ($list -match $Id) {
+        $list = winget list -e --id $WingetId 2>$null
+        if ($list -match $WingetId) {
             Write-Host " Already installed (Winget)." -ForegroundColor Green
+            return
         }
-        else {
-            Write-Host " Not found. Installing via Winget..." -ForegroundColor Yellow
-            winget install -e --id $Id --accept-source-agreements --accept-package-agreements
-            Write-Host " NOTE: You may need to restart your terminal/computer for PATH updates." -ForegroundColor Magenta
+        Write-Host " Installing via Winget..." -ForegroundColor Yellow
+        winget install -e --id $WingetId --accept-source-agreements --accept-package-agreements
+        if ($?) { return }
+    }
+
+    # 3. Try Chocolatey (Fallback)
+    if (Get-Command choco -ErrorAction SilentlyContinue) {
+        $list = choco list --local-only $ChocoId 2>$null
+        if ($list -match $ChocoId) {
+            Write-Host " Already installed (Chocolatey)." -ForegroundColor Green
+            return
         }
+        Write-Host " Installing via Chocolatey..." -ForegroundColor Yellow
+        choco install $ChocoId -y
+        return
     }
-    else {
-        Write-Warning " Winget not found. Please install $Name manually."
-    }
+
+    Write-Warning " Could not install $Name (Winget/Choco not available or failed)."
 }
 
 # --- 0. Core Prerequisites ---
-Install-Winget "Git.Git" "Git" "git"
-Install-Winget "OpenJS.NodeJS.LTS" "Node.js (LTS)" "node"
-Install-Winget "Python.Python.3.11" "Python 3.11" "python"
-Install-Winget "EclipseAdoptium.Temurin.17.JDK" "Java JDK 17" "java"
-Install-Winget "Docker.DockerDesktop" "Docker Desktop" "docker"
+Install-Package "Git" "Git.Git" "git" "git"
+Install-Package "Node.js (LTS)" "OpenJS.NodeJS.LTS" "nodejs-lts" "node"
+Install-Package "Python 3.11" "Python.Python.3.11" "python" "python"
+Install-Package "Java JDK 17" "EclipseAdoptium.Temurin.17.JDK" "temurin17" "java"
+Install-Package "Docker Desktop" "Docker.DockerDesktop" "docker-desktop" "docker"
+Install-Package "Postman" "Postman.Postman" "postman"
 
 # Refresh Env (Attempt to reload PATH without restart if possible, mainly for current session)
 $env:Path = [System.Environment]::GetEnvironmentVariable("Path", "Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path", "User")

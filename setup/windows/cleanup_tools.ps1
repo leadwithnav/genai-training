@@ -1,3 +1,8 @@
+[CmdletBinding()]
+param (
+    [switch]$Force
+)
+
 # Check for admin (Recommended for file deletions in C:\Tools)
 if (-not ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole] "Administrator")) {
     Write-Warning "Running as standard user. File deletion in C:\Tools might fail."
@@ -97,26 +102,51 @@ catch {
 Write-Host "`n--- Core Tools Cleanup (Git, Node, Python, Java, Docker) ---" -ForegroundColor Red
 Write-Host "WARNING: This will UNINSTALL these tools from your system via Winget." -ForegroundColor Red
 Write-Host "This affects your ENTIRE machine, not just this lab." -ForegroundColor Red
-$confirm = Read-Host "Do you want to proceed with Core Tools uninstall? (type 'YES' to confirm)"
+if ($Force) {
+    $confirm = 'YES'
+}
+else {
+    $confirm = Read-Host "Do you want to proceed with Core Tools uninstall? (type 'YES' to confirm)"
+}
 
 if ($confirm -eq 'YES') {
-    function Uninstall-Winget {
-        param ([string]$Id, [string]$Name)
-        Write-Host "Uninstalling $Name..." -NoNewline
+    function Uninstall-Package {
+        param (
+            [string]$Name,
+            [string]$WingetId,
+            [string]$ChocoId
+        )
+        Write-Host "Uninstalling $Name..."
+
+        # 1. Try Winget
         if (Get-Command winget -ErrorAction SilentlyContinue) {
-            winget uninstall --id $Id --accept-source-agreements
-            Write-Host " Done (Check output above)." -ForegroundColor Yellow
+            $list = winget list -e --id $WingetId 2>$null
+            if ($list -match $WingetId) {
+                Write-Host "  Found in Winget. Uninstalling..." -ForegroundColor Yellow
+                winget uninstall --id $WingetId --accept-source-agreements
+                return
+            }
         }
-        else {
-            Write-Warning " Winget not found."
+
+        # 2. Try Chocolatey
+        if (Get-Command choco -ErrorAction SilentlyContinue) {
+            $list = choco list --local-only $ChocoId 2>$null
+            if ($list -match $ChocoId) {
+                Write-Host "  Found in Chocolatey. Uninstalling..." -ForegroundColor Yellow
+                choco uninstall $ChocoId -y
+                return
+            }
         }
+
+        Write-Warning "  $Name not found in Winget or Chocolatey."
     }
 
-    Uninstall-Winget "Git.Git" "Git"
-    Uninstall-Winget "OpenJS.NodeJS.LTS" "Node.js"
-    Uninstall-Winget "Python.Python.3.11" "Python 3.11"
-    Uninstall-Winget "EclipseAdoptium.Temurin.17.JDK" "Java JDK 17"
-    Uninstall-Winget "Docker.DockerDesktop" "Docker Desktop"
+    Uninstall-Package "Git" "Git.Git" "git"
+    Uninstall-Package "Node.js" "OpenJS.NodeJS.LTS" "nodejs-lts"
+    Uninstall-Package "Python 3.11" "Python.Python.3.11" "python"
+    Uninstall-Package "Java JDK 17" "EclipseAdoptium.Temurin.17.JDK" "temurin17"
+    Uninstall-Package "Docker Desktop" "Docker.DockerDesktop" "docker-desktop"
+    Uninstall-Package "Postman" "Postman.Postman" "postman"
 }
 else {
     Write-Host "Skipping Core Tools cleanup." -ForegroundColor Green
