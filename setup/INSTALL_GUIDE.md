@@ -62,15 +62,11 @@ Restart your computer when prompted.
 ### Step 2 — Download Docker Desktop
 1. Go to **[https://www.docker.com/products/docker-desktop](https://www.docker.com/products/docker-desktop)**
 ![alt text](resources/image3.png)
+
 2. Click **Download for Windows**
+
 3. Run the installer and follow the prompts
 4. Launch Docker Desktop and wait for it to fully start (whale icon in system tray stops animating)
-
-### Verify Docker
-```powershell
-docker --version
-docker run hello-world
-```
 
 
 ## 4. 📂 Open VS Code & Clone the Repository
