@@ -99,8 +99,9 @@ catch {
 }
 
 # --- 4. Core Tools (Optional & Dangerous) ---
-Write-Host "`n--- Core Tools Cleanup (Git, Node, Python, Java, Docker) ---" -ForegroundColor Red
+Write-Host "`n--- Core Tools Cleanup (Git, Node, Python, Java, Postman) ---" -ForegroundColor Red
 Write-Host "WARNING: This will UNINSTALL these tools from your system via Winget." -ForegroundColor Red
+Write-Host "NOTE: Docker Desktop is a manual prereq and will NOT be uninstalled here." -ForegroundColor Yellow
 Write-Host "This affects your ENTIRE machine, not just this lab." -ForegroundColor Red
 if ($Force) {
     $confirm = 'YES'
@@ -145,8 +146,8 @@ if ($confirm -eq 'YES') {
     Uninstall-Package "Node.js" "OpenJS.NodeJS.LTS" "nodejs-lts"
     Uninstall-Package "Python 3.11" "Python.Python.3.11" "python"
     Uninstall-Package "Java JDK 17" "EclipseAdoptium.Temurin.17.JDK" "temurin17"
-    Uninstall-Package "Docker Desktop" "Docker.DockerDesktop" "docker-desktop"
     Uninstall-Package "Postman" "Postman.Postman" "postman"
+    # Docker Desktop not included — must be uninstalled manually via Settings > Uninstall
 }
 else {
     Write-Host "Skipping Core Tools cleanup." -ForegroundColor Green

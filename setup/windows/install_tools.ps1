@@ -11,7 +11,7 @@ $toolsDir = "C:\Tools"
 if (-not (Test-Path $toolsDir)) { New-Item -ItemType Directory -Force -Path $toolsDir | Out-Null }
 
 # --- Helper: Ensure Package Manager (Chocolatey) ---
-function Ensure-Chocolatey {
+function Initialize-Chocolatey {
     if (Get-Command choco -ErrorAction SilentlyContinue) {
         return $true
     }
@@ -74,7 +74,7 @@ function Install-Package {
 
     # 3. Try Chocolatey (Fallback)
     # Only try to ensure/use Choco if Winget failed or wasn't found
-    if (Ensure-Chocolatey) {
+    if (Initialize-Chocolatey) {
         $list = choco list --local-only $ChocoId 2>$null
         if ($list -match $ChocoId) {
             Write-Host " Already installed (Chocolatey)." -ForegroundColor Green
@@ -98,7 +98,7 @@ if ($InstallOnly -eq "All" -or $InstallOnly -eq "Git") { Install-Package "Git" "
 if ($InstallOnly -eq "All" -or $InstallOnly -eq "Node.js") { Install-Package "Node.js (LTS)" "OpenJS.NodeJS.LTS" "nodejs-lts" "node" }
 if ($InstallOnly -eq "All" -or $InstallOnly -eq "Python") { Install-Package "Python 3.11" "Python.Python.3.11" "python" "python" }
 if ($InstallOnly -eq "All" -or $InstallOnly -eq "Java") { Install-Package "Java JDK 17" "EclipseAdoptium.Temurin.17.JDK" "temurin17" "java" }
-if ($InstallOnly -eq "All" -or $InstallOnly -eq "Docker") { Install-Package "Docker Desktop" "Docker.DockerDesktop" "docker-desktop" "docker" }
+
 # --- Postman (Manual Download Fallback) ---
 if ($InstallOnly -eq "All" -or $InstallOnly -eq "Postman") {
     Write-Host "`nChecking Postman..." -NoNewline

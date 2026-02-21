@@ -1,20 +1,22 @@
 $ErrorActionPreference = "Continue"
 
-function Check-Tool {
+function Invoke-ToolCheck {
     param (
         [string]$Name,
         [string]$Command,
-        [string]$Args = "--version"
+        [string]$ToolArgs = "--version"
     )
     Write-Host "Checking $Name... " -NoNewline
     try {
         if (Get-Command $Command -ErrorAction SilentlyContinue) {
-            $output = & $Command $Args 2>&1 | Select-Object -First 1
+            $output = & $Command $ToolArgs 2>&1 | Select-Object -First 1
             Write-Host "OK ($output)" -ForegroundColor Green
-        } else {
+        }
+        else {
             Write-Host "NOT FOUND in PATH" -ForegroundColor Red
         }
-    } catch {
+    }
+    catch {
         Write-Host "ERROR running command" -ForegroundColor Red
     }
 }
@@ -22,32 +24,35 @@ function Check-Tool {
 Write-Host "`n=== GenAI Training Lab: Tool Verification ===`n" -ForegroundColor Cyan
 
 # Core
-Check-Tool "Node.js" "node" "-v"
-Check-Tool "NPM" "npm" "-v"
-Check-Tool "Git" "git" "--version"
-Check-Tool "Python" "python" "--version"
-Check-Tool "Java" "java" "-version"
+Invoke-ToolCheck "Node.js" "node" "-v"
+Invoke-ToolCheck "NPM" "npm" "-v"
+Invoke-ToolCheck "Git" "git" "--version"
+Invoke-ToolCheck "Python" "python" "--version"
+Invoke-ToolCheck "Java" "java" "-version"
 
-# Docker
+# Docker (Manual prereq — verify separately)
 Write-Host "Checking Docker... " -NoNewline
 if (Get-Command docker -ErrorAction SilentlyContinue) {
     $dockerInfo = docker info 2>$null
     if ($dockerInfo) {
         $ver = docker --version
         Write-Host "RUNNING ($ver)" -ForegroundColor Green
-    } else {
-        Write-Host "INSTALLED BUT NOT RUNNING (Is Docker Desktop started?)" -ForegroundColor Yellow
     }
-} else {
-    Write-Host "NOT FOUND" -ForegroundColor Red
+    else {
+        Write-Host "INSTALLED BUT NOT RUNNING (Please start Docker Desktop manually)" -ForegroundColor Yellow
+    }
+}
+else {
+    Write-Host "NOT FOUND - Docker Desktop must be installed manually (see INSTALL_GUIDE.md Section 3)" -ForegroundColor Yellow
 }
 
 # New Tools
-Check-Tool "Locust" "locust" "--version"
-Check-Tool "Playwright" "npx" "playwright --version"
+Invoke-ToolCheck "Locust" "locust" "--version"
+Invoke-ToolCheck "Playwright" "npx" "playwright --version"
 if (Test-Path "$env:LOCALAPPDATA\ms-playwright\chromium-*") {
     Write-Host "Playwright Chromium: OK" -ForegroundColor Green
-} else {
+}
+else {
     Write-Host "Playwright Chromium: NOT FOUND (Run install_tools.ps1)" -ForegroundColor Red
 }
 
@@ -57,12 +62,15 @@ if (Get-Command jmeter -ErrorAction SilentlyContinue) {
     Try {
         $ver = jmeter --version 2>&1 | Select-Object -First 1
         Write-Host "OK ($ver)" -ForegroundColor Green
-    } Catch {
+    }
+    Catch {
         Write-Host "INSTALLED (Error getting version)" -ForegroundColor Yellow
     }
-} elseif (Test-Path "C:\Tools\apache-jmeter-5.6.3\bin\jmeter.bat") {
+}
+elseif (Test-Path "C:\Tools\apache-jmeter-5.6.3\bin\jmeter.bat") {
     Write-Host "OK (Found at C:\Tools\apache-jmeter-5.6.3)" -ForegroundColor Green
-} else {
+}
+else {
     Write-Host "NOT FOUND" -ForegroundColor Red
 }
 
@@ -72,9 +80,11 @@ $postmanUser = "$env:LOCALAPPDATA\Postman\Postman.exe"
 $postmanProgram = "$env:ProgramFiles\Postman\Postman.exe"
 if (Test-Path $postmanUser) {
     Write-Host "OK (Found in User AppData)" -ForegroundColor Green
-} elseif (Test-Path $postmanProgram) {
+}
+elseif (Test-Path $postmanProgram) {
     Write-Host "OK (Found in Program Files)" -ForegroundColor Green
-} else {
+}
+else {
     Write-Host "NOT FOUND (Manual check required)" -ForegroundColor Yellow
 }
 
