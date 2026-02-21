@@ -17,20 +17,22 @@ cd .\setup\windows
 ```
 
 This script will attempt to install:
-- Docker Desktop (Manual install required if not present)
 - Node.js (LTS)
-- VS Code
 - Git
 - Postman
 - Python
 - OpenJDK (for JMeter)
 - JMeter
+- Playwright
+- Locust
+
+> ⚠️ **Docker Desktop** and **VS Code** must be installed **manually** before running this script. See `setup/INSTALL_GUIDE.md` for instructions.
 
 ## 3. Verify Installation
 After running the installer or installing manually, run the verification script:
 
 ```powershell
-.\verify.ps1
+.\verify_tools.ps1
 ```
 
 It should report "OK" for all tools. If any are missing, please install them manually using the links below.

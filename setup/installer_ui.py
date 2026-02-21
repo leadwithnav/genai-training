@@ -16,7 +16,7 @@ TOOLS = [
     {"id": "Node.js", "name": "Node.js (LTS)", "dep": None},
     {"id": "Python", "name": "Python 3.11", "dep": None},
     {"id": "Java", "name": "Java JDK 17", "dep": None},
-    {"id": "Docker", "name": "Docker Desktop", "dep": None},
+
     {"id": "Postman", "name": "Postman", "dep": None},
     {"id": "Playwright", "name": "Playwright", "dep": "Node.js"},
     {"id": "Locust", "name": "Locust", "dep": "Python"},
@@ -39,8 +39,7 @@ def check_status(tool_id):
             return shutil.which("python") is not None
         elif tool_id == "Java":
             return shutil.which("java") is not None
-        elif tool_id == "Docker":
-            return shutil.which("docker") is not None
+
         elif tool_id == "Postman":
              paths = [
                  os.path.expandvars(r"%LOCALAPPDATA%\Postman\Postman.exe"),

@@ -547,7 +547,7 @@ A containerized e-commerce web application built for the "GenAI for Software Tes
 **Acceptance Criteria:**
 - [ ] `start.ps1`: Runs `docker compose up -d` and prints URLs.
 - [ ] `reset.ps1`: Runs `docker compose down -v` then `docker compose up -d`.
-- [ ] `verify.ps1`: Checks Docker is installed and ports 3000/8081 are free.
+- [ ] `verify_tools.ps1`: Checks Docker is installed and ports 3000/8081 are free.
 - [ ] Scripts are in the `setup/windows/` directory.
 
 ---
