@@ -61,7 +61,7 @@ Restart your computer when prompted.
 
 ### Step 2 — Download Docker Desktop
 1. Go to **[https://www.docker.com/products/docker-desktop](https://www.docker.com/products/docker-desktop)**
-![alt text](resources/image3.png)
+![alt text](resources/image4.png)
 
 2. Click **Download for Windows**
 
