@@ -1,244 +1,458 @@
-# Check for admin (Still good practice, though not strictly needed for user-scope installs like pip/npm)
-param(
-    [string]$InstallOnly = "All"
-)
+# =============================================================================
+# install_tools.ps1
+# GenAI Training Lab — Tool Installation Script
+#
+# Usage:
+#   .\install_tools.ps1                   # Install everything
+#   .\install_tools.ps1 -InstallOnly Git  # Install one tool only
+#
+# Strategy per tool:
+#   DETECT : PATH → Registry → Env Vars → Filesystem glob  (via tool_helpers.ps1)
+#   INSTALL: winget → chocolatey → direct download          (in fallback order)
+#
+# Compatible: Windows PowerShell 5.1+, Windows 10/11
+# =============================================================================
 
-if (-not ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole] "Administrator")) {
-    Write-Warning "Running as standard user. Some global installs might fail or require elevation."
+param([string]$InstallOnly = "All")
+
+# Admin check — informational, not blocking
+if (-not ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole(
+        [Security.Principal.WindowsBuiltInRole]"Administrator")) {
+    Write-Warning "Running as standard user. Some system-wide installs may require elevation."
 }
 
+# Ensure C:\Tools exists (used for JMeter manual download)
 $toolsDir = "C:\Tools"
 if (-not (Test-Path $toolsDir)) { New-Item -ItemType Directory -Force -Path $toolsDir | Out-Null }
 
-# --- Helper: Ensure Package Manager (Chocolatey) ---
-function Initialize-Chocolatey {
-    if (Get-Command choco -ErrorAction SilentlyContinue) {
-        return $true
-    }
-    
-    Write-Host "Chocolatey not found. Attempting to install..." -ForegroundColor Yellow
-    
-    # Check Admin again for Choco
-    if (-not ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole] "Administrator")) {
-        Write-Warning " Skipping Chocolatey installation: Requires Administrator privileges."
-        Write-Warning " Please install Chocolatey manually or run this script as Admin."
-        return $false
-    }
+# ── Dot-source shared helpers ──────────────────────────────────────────────────
+$helpersPath = Join-Path $PSScriptRoot "tool_helpers.ps1"
+if (-not (Test-Path $helpersPath)) {
+    Write-Error "tool_helpers.ps1 not found at '$helpersPath'. Please place it alongside this script."
+    exit 1
+}
+. $helpersPath
+$configs = Get-ToolConfigs
 
-    try {
-        Set-ExecutionPolicy Bypass -Scope Process -Force; 
-        [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.ServicePointManager]::SecurityProtocol -bor 3072; 
-        Invoke-Expression ((New-Object System.Net.WebClient).DownloadString('https://community.chocolatey.org/install.ps1'))
-        
-        # Reload PATH for current session
-        $env:Path = [System.Environment]::GetEnvironmentVariable("Path", "Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path", "User")
-        
-        if (Get-Command choco -ErrorAction SilentlyContinue) {
-            Write-Host " Chocolatey installed successfully." -ForegroundColor Green
+# ── Helper: Initialize Chocolatey (only if needed) ────────────────────────────
+function Initialize-Chocolatey {
+    # Check 1: already in PATH
+    if (Get-Command choco -ErrorAction SilentlyContinue) { return $true }
+
+    # Check 2: installed at known locations but not in PATH — auto-add to session PATH
+    $knownPaths = @(
+        "C:\ProgramData\chocolatey\bin\choco.exe",
+        "C:\chocolatey\bin\choco.exe"
+    )
+    foreach ($p in $knownPaths) {
+        if (Test-Path $p) {
+            Write-Host "  Chocolatey found at '$p' - adding to session PATH." -ForegroundColor DarkGray
+            Add-ToSessionPath (Split-Path $p -Parent)
             return $true
         }
     }
-    catch {
-        Write-Warning " Failed to install Chocolatey: $_"
+
+    # Check 3: chocolatey folder exists but binary is missing (broken/partial install)
+    # Do NOT run the installer — it will throw 'existing installation detected'.
+    if (Test-Path "C:\ProgramData\chocolatey") {
+        Write-Host "  Chocolatey folder exists but choco.exe not found (broken install) - skipping." -ForegroundColor DarkGray
+        return $false
     }
-    
+
+    # Not found anywhere - attempt fresh install (requires admin rights)
+    Write-Host "  Chocolatey not found. Attempting to install..." -ForegroundColor DarkGray
+
+    if (-not ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole(
+            [Security.Principal.WindowsBuiltInRole]"Administrator")) {
+        Write-Host "  Chocolatey needs Administrator rights - skipping." -ForegroundColor DarkYellow
+        return $false
+    }
+    try {
+        Set-ExecutionPolicy Bypass -Scope Process -Force
+        [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor 3072
+        Invoke-Expression ((New-Object System.Net.WebClient).DownloadString('https://community.chocolatey.org/install.ps1'))
+        Refresh-EnvPath
+        if (Get-Command choco -ErrorAction SilentlyContinue) {
+            Write-Host "  Chocolatey installed." -ForegroundColor Green
+            return $true
+        }
+    }
+    catch { Write-Host "  Chocolatey install failed: $_" -ForegroundColor DarkYellow }
     return $false
 }
 
-function Install-Package {
-    param (
+# ── Helper: Install via winget → choco → fallback ────────────────────────────
+function Install-WithFallback {
+    param(
         [string]$Name,
         [string]$WingetId,
-        [string]$ChocoId,
-        [string]$CommandCheck = $null
+        [string]$ChocoId
     )
-    Write-Host "Checking $Name..." -NoNewline
-    
-    # 1. Check if binary is in PATH (Fastest)
-    if ($CommandCheck -and (Get-Command $CommandCheck -ErrorAction SilentlyContinue)) {
-        Write-Host " Already installed (Found '$CommandCheck' in PATH)." -ForegroundColor Green
-        return
-    }
-
-    # 2. Try Winget
+    # 1. Winget (preferred — idempotent, handles "already installed" natively)
     if (Get-Command winget -ErrorAction SilentlyContinue) {
-        $list = winget list -e --id $WingetId 2>$null
-        if ($list -match $WingetId) {
-            Write-Host " Already installed (Winget)." -ForegroundColor Green
-            return
-        }
-        Write-Host " Installing via Winget..." -ForegroundColor Yellow
+        Write-Host "  Installing $Name via Winget..." -ForegroundColor Yellow
         winget install -e --id $WingetId --accept-source-agreements --accept-package-agreements
-        if ($?) { return }
-    }
-
-    # 3. Try Chocolatey (Fallback)
-    # Only try to ensure/use Choco if Winget failed or wasn't found
-    if (Initialize-Chocolatey) {
-        $list = choco list --local-only $ChocoId 2>$null
-        if ($list -match $ChocoId) {
-            Write-Host " Already installed (Chocolatey)." -ForegroundColor Green
-            return
+        if ($LASTEXITCODE -eq 0) {
+            Refresh-EnvPath
+            return $true
         }
-        Write-Host " Installing via Chocolatey..." -ForegroundColor Yellow
-        choco install $ChocoId -y
-        return
+        Write-Host "  Winget returned exit code $LASTEXITCODE. Trying Chocolatey..." -ForegroundColor DarkGray
+    }
+    else {
+        Write-Host "  Winget not available. Trying Chocolatey..." -ForegroundColor DarkGray
     }
 
-    Write-Error "Could not install $Name. Winget not found and Chocolatey requires Admin/is missing."
-    exit 1
+    # 2. Chocolatey fallback (idempotent — skips if already installed)
+    if ($ChocoId -and (Initialize-Chocolatey)) {
+        Write-Host "  Installing $Name via Chocolatey..." -ForegroundColor Yellow
+        choco install $ChocoId -y
+        if ($?) {
+            Refresh-EnvPath
+            return $true
+        }
+    }
+
+    # Both package managers failed — caller should try a direct download fallback
+    Write-Host "  Package managers unavailable for $Name." -ForegroundColor DarkYellow
+    return $false
+}
+
+# ── Helper: Detect then install a standard tool ──────────────────────────────
+function Ensure-Tool {
+    param(
+        [string]$DisplayName,
+        [hashtable]$Config,
+        [string]$WingetId,
+        [string]$ChocoId
+    )
+    Write-Host "`nChecking $DisplayName..." -NoNewline
+
+    # ── Layer 0: Run the CLI command — fastest and most definitive check ───────
+    # If the tool responds to its version/help flag it is installed AND usable.
+    # NOTE: Use $ArgList not $Args — $Args is a reserved PS automatic variable.
+    if ($Config.CommandName -and $Config.CliArgs.Count -gt 0) {
+        $cmdFound = Get-Command $Config.CommandName -ErrorAction SilentlyContinue
+        if ($cmdFound) {
+            try {
+                $ArgList = $Config.CliArgs
+                $out = & $Config.CommandName $ArgList 2>&1 | Select-Object -First 1
+                if ($LASTEXITCODE -eq 0 -or $out) {
+                    Write-Host " Already installed. [via CLI: $($Config.CommandName) $($Config.CliArgs -join ' ')]" -ForegroundColor Green
+                    return $true
+                }
+            }
+            catch { }
+        }
+    }
+
+    # ── Layers 1-4: PATH / Registry / Env Vars / Filesystem ──────────────────
+    # Called only when the CLI check above found nothing (tool not in PATH,
+    # or PATH is broken, or tool has no CLI like Postman).
+    $result = Find-InstalledTool `
+        -ToolName      $DisplayName `
+        -CommandName   $Config.CommandName `
+        -RegistryNames $Config.RegistryNames `
+        -ExeSubPath    $Config.ExeSubPath `
+        -EnvVars       $Config.EnvVars `
+        -FsGlobs       $Config.FsGlobs
+
+    if ($result.Found) {
+        Write-Host " Already installed. [Source: $($result.Source)]" -ForegroundColor Green
+        return $true
+    }
+
+    Write-Host " Not found. Installing..." -ForegroundColor Yellow
+    return (Install-WithFallback -Name $DisplayName -WingetId $WingetId -ChocoId $ChocoId)
 }
 
 
+# ==============================================================================
+# TOOL INSTALLATIONS
+# ==============================================================================
 
-# ... (Functions are defined above, keep them) ...
+Write-Host "`n=== GenAI Training Lab: Tool Installation ===" -ForegroundColor Cyan
 
-# --- 0. Core Prerequisites ---
-if ($InstallOnly -eq "All" -or $InstallOnly -eq "Git") { Install-Package "Git" "Git.Git" "git" "git" }
-if ($InstallOnly -eq "All" -or $InstallOnly -eq "Node.js") { Install-Package "Node.js (LTS)" "OpenJS.NodeJS.LTS" "nodejs-lts" "node" }
-if ($InstallOnly -eq "All" -or $InstallOnly -eq "Python") { Install-Package "Python 3.11" "Python.Python.3.11" "python" "python" }
-if ($InstallOnly -eq "All" -or $InstallOnly -eq "Java") { Install-Package "Java JDK 17" "EclipseAdoptium.Temurin.17.JDK" "temurin17" "java" }
+# ── Git ───────────────────────────────────────────────────────────────────────
+if ($InstallOnly -eq "All" -or $InstallOnly -eq "Git") {
+    $null = Ensure-Tool "Git" $configs["Git"] "Git.Git" "git"
+}
 
-# --- Postman (Manual Download Fallback) ---
-if ($InstallOnly -eq "All" -or $InstallOnly -eq "Postman") {
-    Write-Host "`nChecking Postman..." -NoNewline
-    $postmanUser = "$env:LOCALAPPDATA\Postman\Postman.exe"
-    $postmanProgram = "$env:ProgramFiles\Postman\Postman.exe"
-    
-    if ((Test-Path $postmanUser) -or (Test-Path $postmanProgram)) {
-        Write-Host " Already installed." -ForegroundColor Green
-    }
-    else {
-        Write-Host " Not found." -ForegroundColor Yellow
-        Write-Host " Downloading Postman installer..." -ForegroundColor Cyan
-        
-        $installerPath = "$env:TEMP\PostmanSetup.exe"
+# ── Node.js ──────────────────────────────────────────────────────────────────
+if ($InstallOnly -eq "All" -or $InstallOnly -eq "Node.js") {
+    $nodeInstalled = Ensure-Tool "Node.js (LTS)" $configs["Node.js"] "OpenJS.NodeJS.LTS" "nodejs-lts"
+    if (-not $nodeInstalled) {
+        # Direct .msi download fallback when winget and choco both unavailable
+        Write-Host "  Trying direct Node.js download as last resort..." -ForegroundColor Cyan
+        $nodeMsi = "$env:TEMP\NodeSetup.msi"
         try {
             [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
-            Invoke-WebRequest -Uri "https://dl.pstmn.io/download/latest/win64" -OutFile $installerPath -ErrorAction Stop
-            
-            Write-Host " Running Postman installer..." -ForegroundColor Yellow
-            Start-Process -FilePath $installerPath -ArgumentList "--silent" -Wait
-            Remove-Item $installerPath -Force -ErrorAction SilentlyContinue
-            
-            if ((Test-Path $postmanUser) -or (Test-Path $postmanProgram)) {
-                Write-Host " Postman installed successfully." -ForegroundColor Green
+            # Fetch the current LTS version number from nodejs.org
+            $nodeIndex = Invoke-RestMethod "https://nodejs.org/dist/index.json" -ErrorAction Stop
+            $lts = $nodeIndex | Where-Object { $_.lts } | Select-Object -First 1
+            $nodeVersion = $lts.version
+            $nodeMsiUrl = "https://nodejs.org/dist/$nodeVersion/node-$nodeVersion-x64.msi"
+            Write-Host "  Downloading Node.js $nodeVersion..." -ForegroundColor Yellow
+            Invoke-WebRequest -Uri $nodeMsiUrl -OutFile $nodeMsi -ErrorAction Stop
+            Write-Host "  Installing Node.js (requires elevation prompt)..." -ForegroundColor Yellow
+            Start-Process msiexec.exe -ArgumentList "/i `"$nodeMsi`" /qn" -Wait -Verb RunAs
+            Remove-Item $nodeMsi -Force -ErrorAction SilentlyContinue
+            Refresh-EnvPath
+            if (Get-Command node -ErrorAction SilentlyContinue) {
+                Write-Host "  Node.js installed successfully." -ForegroundColor Green
             }
             else {
-                Write-Host " Postman installer ran. It may open automatically on first launch." -ForegroundColor Yellow
+                Write-Host "  Node.js MSI ran but 'node' not yet in PATH. Open a new terminal." -ForegroundColor DarkYellow
             }
         }
         catch {
-            Write-Error "Failed to install Postman: $_"
-            exit 1
+            Write-Host "  Direct Node.js download failed: $_" -ForegroundColor DarkYellow
+            Write-Host "  Please install manually from https://nodejs.org/en/download/" -ForegroundColor DarkYellow
         }
     }
 }
 
-# Refresh Env (Attempt to reload PATH without restart if possible, mainly for current session)
-$env:Path = [System.Environment]::GetEnvironmentVariable("Path", "Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path", "User")
+# ── Python ───────────────────────────────────────────────────────────────────
+if ($InstallOnly -eq "All" -or $InstallOnly -eq "Python") {
+    $null = Ensure-Tool "Python 3.11" $configs["Python"] "Python.Python.3.11" "python"
+}
 
-# --- 1. Playwright (Node.js) ---
+# ── Java JDK ─────────────────────────────────────────────────────────────────
+if ($InstallOnly -eq "All" -or $InstallOnly -eq "Java") {
+    $javaInstalled = Ensure-Tool "Java JDK 17" $configs["Java"] "EclipseAdoptium.Temurin.17.JDK" "temurin17"
+    if (-not $javaInstalled) {
+        # Direct MSI download from Adoptium API — same pattern as Node.js fallback
+        Write-Host "  Trying direct Temurin JDK 17 download as last resort..." -ForegroundColor Cyan
+        $javaMsi = "$env:TEMP\TemurinJDK17.msi"
+        try {
+            [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+            # Adoptium API returns latest JDK 17 asset metadata
+            $apiUrl = "https://api.adoptium.net/v3/assets/latest/17/hotspot?os=windows&architecture=x64&image_type=jdk"
+            $assets = Invoke-RestMethod $apiUrl -ErrorAction Stop
+            $msiAsset = $assets[0].binary.installer
+            $javaUrl = $msiAsset.link
+            $javaVer = $assets[0].version.semver
+            Write-Host "  Downloading Temurin JDK $javaVer..." -ForegroundColor Yellow
+            Invoke-WebRequest -Uri $javaUrl -OutFile $javaMsi -ErrorAction Stop
+            Write-Host "  Installing JDK (requires elevation prompt)..." -ForegroundColor Yellow
+            Start-Process msiexec.exe -ArgumentList "/i `"$javaMsi`" /qn ADDLOCAL=FeatureMain,FeatureEnvironment,FeatureJarFileRunWith,FeatureJavaHome" -Wait -Verb RunAs
+            Remove-Item $javaMsi -Force -ErrorAction SilentlyContinue
+            Refresh-EnvPath
+            if (Get-Command java -ErrorAction SilentlyContinue) {
+                Write-Host "  Java JDK installed successfully." -ForegroundColor Green
+            }
+            else {
+                Write-Host "  JDK MSI ran but 'java' not yet in PATH. Open a new terminal." -ForegroundColor DarkYellow
+            }
+        }
+        catch {
+            Write-Host "  Direct JDK download failed: $_" -ForegroundColor DarkYellow
+            Write-Host "  Please install manually from https://adoptium.net/temurin/releases/?version=17" -ForegroundColor DarkYellow
+        }
+    }
+}
+
+# ── Postman ───────────────────────────────────────────────────────────────────
+# Postman uses a Squirrel installer (Electron) — no CLI, detect only via registry/fs
+if ($InstallOnly -eq "All" -or $InstallOnly -eq "Postman") {
+    Write-Host "`nChecking Postman..." -NoNewline
+
+    $result = Find-InstalledTool `
+        -ToolName      "Postman" `
+        -CommandName   $configs["Postman"].CommandName `
+        -RegistryNames $configs["Postman"].RegistryNames `
+        -ExeSubPath    $configs["Postman"].ExeSubPath `
+        -EnvVars       $configs["Postman"].EnvVars `
+        -FsGlobs       $configs["Postman"].FsGlobs
+
+    if ($result.Found) {
+        Write-Host " Already installed. [Source: $($result.Source)]" -ForegroundColor Green
+    }
+    else {
+        Write-Host " Not found. Trying Winget..." -ForegroundColor Yellow
+        $wingetOk = $false
+
+        if (Get-Command winget -ErrorAction SilentlyContinue) {
+            winget install -e --id Postman.Postman --accept-source-agreements --accept-package-agreements
+            $wingetOk = ($LASTEXITCODE -eq 0)
+        }
+
+        if (-not $wingetOk) {
+            # Direct download fallback
+            Write-Host "  Downloading Postman installer directly..." -ForegroundColor Cyan
+            $installerPath = "$env:TEMP\PostmanSetup.exe"
+            try {
+                [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+                Invoke-WebRequest -Uri "https://dl.pstmn.io/download/latest/win64" `
+                    -OutFile $installerPath -ErrorAction Stop
+                Write-Host "  Running Postman installer (this will open the GUI, please close Postman GUI to continue)..." -ForegroundColor Yellow
+                Start-Process -FilePath $installerPath -Wait
+                Remove-Item $installerPath -Force -ErrorAction SilentlyContinue
+                Write-Host "  Postman installation complete." -ForegroundColor Green
+            }
+            catch {
+                Write-Error "  Failed to download Postman: $_"
+                Write-Warning "  Please install Postman manually from https://www.postman.com/downloads/"
+            }
+        }
+    }
+}
+
+# Refresh PATH after core installs so pip/npm are available below
+Refresh-EnvPath
+
+# ── Playwright ────────────────────────────────────────────────────────────────
 if ($InstallOnly -eq "All" -or $InstallOnly -eq "Playwright") {
     Write-Host "`nChecking Playwright..." -NoNewline
-    if (Get-Command npm -ErrorAction SilentlyContinue) {
+
+    # npm may have just been installed — re-check after PATH refresh
+    $npmCmd = Get-Command npm -ErrorAction SilentlyContinue
+    if (-not $npmCmd) {
+        # Final fallback: look for npm in Node.js install dir
+        $nodeResult = Find-InstalledTool -ToolName "Node.js" `
+            -CommandName "node" `
+            -RegistryNames $configs["Node.js"].RegistryNames `
+            -ExeSubPath "node.exe" `
+            -FsGlobs $configs["Node.js"].FsGlobs
+        if ($nodeResult.Found) {
+            $npmDir = Split-Path $nodeResult.ExePath -Parent
+            Add-ToSessionPath $npmDir
+            $npmCmd = Get-Command npm -ErrorAction SilentlyContinue
+        }
+    }
+
+    if ($npmCmd) {
         $npmList = npm list -g @playwright/test 2>$null
         if ($npmList -match "@playwright/test") {
             Write-Host " Already installed." -ForegroundColor Green
         }
         else {
-            Write-Host " Installing..." -ForegroundColor Yellow
+            Write-Host " Installing @playwright/test..." -ForegroundColor Yellow
             try {
                 npm install -g @playwright/test
                 Write-Host " Playwright installed." -ForegroundColor Green
             }
-            catch {
-                Write-Warning " Failed to install Playwright npm package."
-            }
+            catch { Write-Warning " Failed to install Playwright npm package." }
         }
-        
-        # Install Browsers (Chromium)
-        Write-Host " Installing Playwright browsers (Chromium)..." -ForegroundColor Yellow
+
+        # Chromium browser — idempotent
+        Write-Host "  Installing Playwright Chromium browser..." -ForegroundColor Yellow
         try {
             npx playwright install chromium
-            Write-Host " Browsers installed." -ForegroundColor Green
+            Write-Host "  Chromium installed." -ForegroundColor Green
         }
-        catch {
-            Write-Warning " Failed to install Playwright/Chromium."
-        }
+        catch { Write-Warning "  Failed to install Playwright Chromium." }
     }
     else {
-        Write-Warning " npm not found. Skipping Playwright."
+        Write-Warning " npm not found. Please install Node.js first then re-run."
     }
 }
 
-# --- 2. Locust (Python) ---
+# ── Locust (Python pip package) ───────────────────────────────────────────────
 if ($InstallOnly -eq "All" -or $InstallOnly -eq "Locust") {
     Write-Host "`nChecking Locust..." -NoNewline
-    if (Get-Command pip -ErrorAction SilentlyContinue) {
-        $null = pip show locust
-        if ($LASTEXITCODE -eq 0) {
+
+    # Determine which pip variant is available.
+    # NOTE: & cmd ($array) doesn't reliably splat in PS 5.1 — use direct calls.
+    $pipVariant = $null
+    if (Get-Command pip    -ErrorAction SilentlyContinue) { $pipVariant = "pip" }
+    elseif (Get-Command pip3   -ErrorAction SilentlyContinue) { $pipVariant = "pip3" }
+    elseif (Get-Command python -ErrorAction SilentlyContinue) { $pipVariant = "python" }
+    else {
+        # Python not in PATH — try 4-layer detection to find and add it
+        $pyResult = Find-InstalledTool -ToolName "Python" `
+            -CommandName   "python" `
+            -RegistryNames $configs["Python"].RegistryNames `
+            -ExeSubPath    "python.exe" `
+            -EnvVars       $configs["Python"].EnvVars `
+            -FsGlobs       $configs["Python"].FsGlobs
+        if ($pyResult.Found -and $pyResult.ExePath) {
+            Add-ToSessionPath (Split-Path $pyResult.ExePath -Parent)
+            if (Get-Command python -ErrorAction SilentlyContinue) { $pipVariant = "python" }
+        }
+    }
+
+    if ($pipVariant) {
+        # Check if locust is already installed — use direct calls, not array splatting
+        $alreadyInstalled = $false
+        switch ($pipVariant) {
+            "pip" { pip    show locust 2>&1 | Out-Null; $alreadyInstalled = ($LASTEXITCODE -eq 0) }
+            "pip3" { pip3   show locust 2>&1 | Out-Null; $alreadyInstalled = ($LASTEXITCODE -eq 0) }
+            "python" { python -m pip show locust 2>&1 | Out-Null; $alreadyInstalled = ($LASTEXITCODE -eq 0) }
+        }
+
+        if ($alreadyInstalled) {
             Write-Host " Already installed." -ForegroundColor Green
         }
         else {
-            Write-Host " Installing..." -ForegroundColor Yellow
+            Write-Host " Installing via pip..." -ForegroundColor Yellow
             try {
-                pip install locust
+                switch ($pipVariant) {
+                    "pip" { pip    install locust }
+                    "pip3" { pip3   install locust }
+                    "python" { python -m pip install locust }
+                }
                 Write-Host " Locust installed." -ForegroundColor Green
             }
-            catch {
-                Write-Warning " Failed to install Locust."
-            }
+            catch { Write-Warning " Failed to install Locust via pip." }
         }
     }
     else {
-        Write-Warning " pip not found. Skipping Locust."
+        Write-Warning " Python/pip not found anywhere. Skipping Locust."
+        Write-Warning " Install Python first, then re-run: .\install_tools.ps1 -InstallOnly Locust"
     }
 }
 
-# --- 3. JMeter (Manual Download - Fallback since Winget missing) ---
+# ── JMeter ────────────────────────────────────────────────────────────────────
+# JMeter is a plain ZIP — no installer, no registry entry.
+# Detection: PATH → JMETER_HOME env var → filesystem wildcard (C: and D:)
 if ($InstallOnly -eq "All" -or $InstallOnly -eq "JMeter") {
     Write-Host "`nChecking JMeter..." -NoNewline
-    $jmeterHome = "$toolsDir\apache-jmeter-5.6.3"
-    
-    if (Test-Path "$jmeterHome\bin\jmeter.bat") {
-        Write-Host " Already installed at $jmeterHome" -ForegroundColor Green
+
+    $jmResult = Find-InstalledTool -ToolName "JMeter" `
+        -CommandName   $configs["JMeter"].CommandName `
+        -RegistryNames $configs["JMeter"].RegistryNames `
+        -ExeSubPath    $configs["JMeter"].ExeSubPath `
+        -EnvVars       $configs["JMeter"].EnvVars `
+        -FsGlobs       $configs["JMeter"].FsGlobs
+
+    if ($jmResult.Found) {
+        Write-Host " Already installed. [Source: $($jmResult.Source)]" -ForegroundColor Green
     }
     else {
-        Write-Host " Not found." -ForegroundColor Yellow
-        Write-Host " Downloading JMeter 5.6.3... (This may take a minute)" -ForegroundColor Cyan
-        
-        $url = "https://dlcdn.apache.org//jmeter/binaries/apache-jmeter-5.6.3.zip"
+        $jmeterVersion = "5.6.3"
+        $jmeterHome = "$toolsDir\apache-jmeter-$jmeterVersion"
+        $url = "https://dlcdn.apache.org//jmeter/binaries/apache-jmeter-$jmeterVersion.zip"
         $zipPath = "$toolsDir\jmeter.zip"
-        
+
+        Write-Host " Not found. Downloading JMeter $jmeterVersion..." -ForegroundColor Yellow
         try {
-            # Download
             [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
             Invoke-WebRequest -Uri $url -OutFile $zipPath -ErrorAction Stop
-            
-            Write-Host " Extracting..." -ForegroundColor Yellow
+
+            Write-Host "  Extracting..." -ForegroundColor Yellow
             Expand-Archive -Path $zipPath -DestinationPath $toolsDir -Force -ErrorAction Stop
             Remove-Item $zipPath -Force
-            
-            Write-Host " Installed to $jmeterHome" -ForegroundColor Green
-            
-            # Update User Path for current session and future
+
+            Write-Host "  Installed to $jmeterHome" -ForegroundColor Green
+
+            # Persist to User PATH and patch the current session
             $userPath = [Environment]::GetEnvironmentVariable("Path", "User")
-            if ($userPath -notmatch "jmeter") {
+            if ($userPath -notmatch [regex]::Escape("$jmeterHome\bin")) {
                 [Environment]::SetEnvironmentVariable("Path", "$userPath;$jmeterHome\bin", "User")
-                $env:Path += ";$jmeterHome\bin"
-                Write-Host " Added to PATH." -ForegroundColor Cyan
             }
+            Add-ToSessionPath "$jmeterHome\bin"
+            Write-Host "  Added $jmeterHome\bin to PATH." -ForegroundColor Cyan
         }
         catch {
-            Write-Error "Failed to install JMeter: $_"
-            exit 1
+            Write-Error "  Failed to install JMeter: $_"
+            Write-Warning "  Download manually from https://jmeter.apache.org/download_jmeter.cgi"
         }
     }
 }
 
+# ── Done ──────────────────────────────────────────────────────────────────────
 if ($InstallOnly -eq "All") {
-    Write-Host "`n--- Setup Complete ---"
-    Write-Host "Please RESTART your terminal to use new tools (JMeter)." -ForegroundColor Cyan
+    Write-Host "`n=== Installation Complete ===" -ForegroundColor Cyan
+    Write-Host "Run .\verify_tools.ps1 to confirm all tools are detected." -ForegroundColor White
+    Write-Host "Note: Open a NEW terminal to ensure all PATH changes take effect." -ForegroundColor Yellow
 }
-
