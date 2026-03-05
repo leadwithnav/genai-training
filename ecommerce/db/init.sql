@@ -4,7 +4,8 @@ CREATE TABLE IF NOT EXISTS products (
     name VARCHAR(255) NOT NULL,
     description TEXT,
     price DECIMAL(10, 2) NOT NULL,
-    image_url VARCHAR(255)
+    image_url VARCHAR(255),
+    stock_quantity INTEGER DEFAULT 10
 );
 
 CREATE TABLE IF NOT EXISTS cart_items (
@@ -37,9 +38,9 @@ CREATE TABLE IF NOT EXISTS wallet_transactions (
 );
 
 -- Seed data
-INSERT INTO products (name, description, price, image_url) VALUES
-('Quantum Keyboard', 'Mechanical keyboard with quantum switches for instant actuation.', 199.99, 'https://images.unsplash.com/photo-1595225476474-87563907a212?w=500&q=80'),
-('Neural Headset', 'AI-powered noise cancellation that adapts to your brainwaves.', 299.99, 'https://images.unsplash.com/photo-1505740420928-5e560c06d30e?w=500&q=80'),
-('Holographic Monitor', '32-inch 8K display with true 3D holographic projection.', 899.99, 'https://images.unsplash.com/photo-1527443224154-c4a3942d3acf?w=500&q=80'),
-('ErgoChair Limitless', 'Self-adjusting ergonomic chair with levitation technology.', 499.99, 'https://images.unsplash.com/photo-1580480055273-228ff5388ef8?w=500&q=80'),
-('SynthWave Mouse', 'Retro-futuristic wireless mouse with programmable LED grid.', 79.99, 'https://images.unsplash.com/photo-1527864550417-7fd91fc51a46?w=500&q=80');
+INSERT INTO products (name, description, price, image_url, stock_quantity) VALUES
+('Quantum Keyboard', 'Mechanical keyboard with quantum switches for instant actuation.', 199.99, 'https://images.unsplash.com/photo-1595225476474-87563907a212?w=500&q=80', 15),
+('Neural Headset', 'AI-powered noise cancellation that adapts to your brainwaves.', 299.99, 'https://images.unsplash.com/photo-1505740420928-5e560c06d30e?w=500&q=80', 0),
+('Holographic Monitor', '32-inch 8K display with true 3D holographic projection.', 899.99, 'https://images.unsplash.com/photo-1527443224154-c4a3942d3acf?w=500&q=80', 5),
+('ErgoChair Limitless', 'Self-adjusting ergonomic chair with levitation technology.', 499.99, 'https://images.unsplash.com/photo-1580480055273-228ff5388ef8?w=500&q=80', 0),
+('SynthWave Mouse', 'Retro-futuristic wireless mouse with programmable LED grid.', 79.99, 'https://images.unsplash.com/photo-1527864550417-7fd91fc51a46?w=500&q=80', 8);

@@ -90,6 +90,18 @@ app.post('/api/cart', async (req, res) => {
     try {
         const { sessionId, productId, quantity } = req.body;
 
+        // Check stock availability
+        const product = await pool.query('SELECT * FROM products WHERE id = $1', [productId]);
+        if (product.rows.length === 0) {
+            return res.status(404).json({ success: false, message: 'Product not found' });
+        }
+
+        // BUG: missing 'return' — response is sent but execution continues,
+        // allowing out-of-stock items to be added to the cart anyway
+        if (product.rows[0].stock_quantity <= 0) {
+            res.status(400).json({ success: false, message: 'Product is out of stock' });
+        }
+
         // Check if item exists in cart
         const existing = await pool.query(
             'SELECT * FROM cart_items WHERE session_id = $1 AND product_id = $2',
