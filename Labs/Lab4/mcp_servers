@@ -1,0 +1,30 @@
+
+npm search @modelcontextprotocol/server-excel
+
+{
+  "mcpServers": {
+    "excel": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "@negokaz/excel-mcp-server"
+      ]
+    }
+  }
+}
+
+Check your excel file for the test case details and test data, and then proceed with the test execution and script creation as outlined in the prompt.
+
+
+Use the excel MCP server, read attached excel sheet,Read the TC_CART_003 test case, use the test data in that row for hints and then run the test case using playwright MCP Server , Go to Application running on localhost:3000 and run the test case steps, If the test execution is successful, create a playwright test script for it,  and then add it it to the playwright\tests\add_to_cart.spec.js and if execution is not successful, debug it and run it and then add running script to add_to_cart.spec.js . Now run the test case added in add_to_cart.spec.js using below command cd playwright; npx playwright test tests/add_to_cart.spec.js --project=chromium. Once the test case get passed, update the excel in same row where TC_CART_004 test case is present, update the excel sheet change status to completed,add actual result of execution in actual_result column, add current date in execution_date. This is UI testing only, dont't check for databases or API responses yet. 
+
+check excel file for updates and then run the test case using the command:
+
+Run the test case using the command:
+npx playwright test tests/add_to_cart.spec.js --project=chromium
+
+
+
+
+
+
