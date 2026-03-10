@@ -1,0 +1,41 @@
+{
+  "id": "rag-vector-retriever",
+  "name": "RAG Vector Retriever MCP Tool",
+  "version": "1.0.0",
+  "description": "Exposes a vector retriever as an MCP tool. Given a prompt, returns relevant documents from the vector DB.",
+  "author": "your-name",
+  "contact": "your-email@example.com",
+  "tools": [
+    {
+      "name": "retrieve",
+      "description": "Retrieve relevant documents from the vector DB for a given prompt.",
+      "endpoint": "http://localhost:8000/tools/retrieve",
+      "method": "POST",
+      "input": {
+        "type": "object",
+        "properties": {
+          "prompt": { "type": "string", "description": "User's query or prompt" },
+          "top_k": { "type": "integer", "description": "Number of docs to retrieve", "default": 5 }
+        },
+        "required": ["prompt"]
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "docs": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": { "type": "string" },
+                "content": { "type": "string" }
+              },
+              "required": ["id", "content"]
+            }
+          }
+        },
+        "required": ["docs"]
+      }
+    }
+  ]
+}

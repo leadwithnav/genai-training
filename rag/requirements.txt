@@ -1,0 +1,9 @@
+langchain
+openai
+PyPDF2
+requests
+python-dotenv
+psycopg2
+fastmcp
+pydantic
+dotenv

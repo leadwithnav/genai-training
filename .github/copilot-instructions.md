@@ -1,5 +1,6 @@
 # GitHub Copilot Instructions
 
+
 ## General Coding Standards (All Languages)
 - **Clean Code:** Write clean, readable, and maintainable code.
 - **Comments:** Add brief comments explaining complex logic, but prefer self-documenting code.
