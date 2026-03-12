@@ -1,0 +1,163 @@
+# ──────────────────────────────────────────────────────────────────────────────
+# Ecommerce CI Pipeline
+#
+# Runs a two-stage Playwright test suite against the Dockerized GenAI Store:
+#   1. Smoke  — critical "go/no-go" flows (homepage, add-to-cart, cart page)
+#   2. Regression — broader cart & checkout flows (runs only if smoke passes)
+#
+# Artifacts uploaded on every run:
+#   • smoke-report/      — HTML report for the smoke suite
+#   • regression-report/ — HTML report for the regression suite (if it ran)
+#   • docker-logs        — Container logs (only on test failure, for debugging)
+# ──────────────────────────────────────────────────────────────────────────────
+
+name: Ecommerce CI Pipeline
+
+on:
+  # Trigger on every push to any branch
+  push:
+    branches: ["**"]
+
+  # Trigger on pull requests targeting any branch
+  pull_request:
+    branches: ["**"]
+
+  # Allow manual runs from the GitHub Actions UI
+  workflow_dispatch:
+
+jobs:
+  ecommerce-ci:
+    name: Build · Start · Test
+    runs-on: ubuntu-latest
+
+    steps:
+
+      # ── 1. Checkout ──────────────────────────────────────────────────────────
+      - name: Checkout code
+        uses: actions/checkout@v4
+        # Fetches the full repository so docker-compose context paths work
+
+      # ── 2. Build Docker images ───────────────────────────────────────────────
+      - name: Build Docker containers
+        run: |
+          # Builds web (nginx + static), api (Node.js), and pulls the postgres image
+          docker compose -f ecommerce/docker-compose.yml build
+
+      # ── 3. Start the stack ───────────────────────────────────────────────────
+      - name: Start application and database
+        run: |
+          # -d starts all services in detached (background) mode
+          docker compose -f ecommerce/docker-compose.yml up -d
+
+      # ── 4. Health check ──────────────────────────────────────────────────────
+      - name: Wait for application to be healthy
+        run: |
+          echo "Polling http://localhost:3000 until the app responds …"
+          for i in $(seq 1 30); do
+            if curl --silent --fail http://localhost:3000 > /dev/null; then
+              echo "✓ Application is ready (attempt $i / 30)"
+              exit 0
+            fi
+            echo "  Attempt $i / 30 — app not ready yet, waiting 5 s …"
+            sleep 5
+          done
+
+          # If we reach here the app never came up — dump logs and fail
+          echo "✗ Application did not become healthy within 150 s"
+          docker compose -f ecommerce/docker-compose.yml logs
+          exit 1
+
+      # ── 5. Set up Node.js ────────────────────────────────────────────────────
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          # Cache npm dependencies keyed on the Playwright lock file
+          cache: "npm"
+          cache-dependency-path: playwright/package-lock.json
+
+      # ── 6. Install Playwright + browser binaries ─────────────────────────────
+      - name: Install Playwright dependencies
+        working-directory: playwright
+        run: |
+          # npm ci uses package-lock.json for a reproducible, deterministic install
+          npm ci
+          # Install Chromium and its system-level OS dependencies
+          npx playwright install --with-deps chromium
+
+      # ── 7. Run smoke tests ───────────────────────────────────────────────────
+      - name: Run Playwright smoke tests
+        id: smoke
+        working-directory: playwright
+        env:
+          # PLAYWRIGHT_HTML_REPORT tells the HTML reporter where to write output.
+          # Setting it per-step lets smoke and regression produce separate folders.
+          PLAYWRIGHT_HTML_REPORT: smoke-report
+        run: npm run test:smoke
+        # continue-on-error: artifacts are uploaded even when the suite fails.
+        # The pipeline is explicitly failed in the last step if needed.
+        continue-on-error: true
+
+      # ── 8. Upload smoke report ───────────────────────────────────────────────
+      - name: Upload smoke test report
+        # always() ensures upload even when smoke tests fail
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: smoke-report
+          path: playwright/smoke-report/
+          retention-days: 7
+
+      # ── 9. Run regression tests (gate: smoke must pass) ──────────────────────
+      - name: Run Playwright regression tests
+        id: regression
+        # Only execute when smoke succeeded — this is the CI gate
+        if: steps.smoke.outcome == 'success'
+        working-directory: playwright
+        env:
+          PLAYWRIGHT_HTML_REPORT: regression-report
+        run: npm run test:regression
+        continue-on-error: true
+
+      # ── 10. Upload regression report ─────────────────────────────────────────
+      - name: Upload regression test report
+        # Upload even on failure; skip only if regression was never started
+        if: always() && steps.regression.outcome != 'skipped'
+        uses: actions/upload-artifact@v4
+        with:
+          name: regression-report
+          path: playwright/regression-report/
+          retention-days: 7
+
+      # ── 11. Collect Docker logs on failure ───────────────────────────────────
+      - name: Collect Docker logs
+        # Capture container logs when a test suite fails — helps debug API errors
+        if: steps.smoke.outcome == 'failure' || steps.regression.outcome == 'failure'
+        run: |
+          docker compose -f ecommerce/docker-compose.yml logs > docker-compose.log 2>&1
+          echo "Container logs written to docker-compose.log"
+
+      # ── 12. Upload Docker logs as artifact ───────────────────────────────────
+      - name: Upload Docker logs
+        if: steps.smoke.outcome == 'failure' || steps.regression.outcome == 'failure'
+        uses: actions/upload-artifact@v4
+        with:
+          name: docker-logs
+          path: docker-compose.log
+          retention-days: 7
+
+      # ── 13. Shut down containers (always) ────────────────────────────────────
+      - name: Shut down Docker containers
+        # Always runs regardless of earlier step outcomes
+        if: always()
+        run: |
+          # -v removes named volumes (DB data) to leave the runner clean
+          docker compose -f ecommerce/docker-compose.yml down -v
+
+      # ── 14. Fail the job if any suite failed ─────────────────────────────────
+      - name: Fail pipeline if tests failed
+        # This step makes the overall job red when continue-on-error masked a failure
+        if: steps.smoke.outcome == 'failure' || steps.regression.outcome == 'failure'
+        run: |
+          echo "One or more test suites failed. Download the uploaded reports to investigate."
+          exit 1

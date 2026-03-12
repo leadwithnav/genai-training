@@ -5,7 +5,9 @@
     "scripts": {
         "test": "npx playwright test",
         "test:ui": "npx playwright test --ui",
-        "test:headed": "npx playwright test --headed"
+        "test:headed": "npx playwright test --headed",
+        "test:smoke": "npx playwright test --project=smoke",
+        "test:regression": "npx playwright test --project=regression"
     },
     "devDependencies": {
         "@playwright/test": "^1.40.0"
