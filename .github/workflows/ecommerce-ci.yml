@@ -1,34 +1,37 @@
 # ──────────────────────────────────────────────────────────────────────────────
 # Ecommerce CI Pipeline
 #
-# Full pipeline order:
-#   Syntax Check → Unit Tests → Docker Build → Start Stack →
-#   DB/API Health Validation → Smoke Tests → Regression Tests →
-#   AI Failure Analysis → Shutdown
+# Job graph:
 #
-# GitHub Check annotations are published for every test suite via
-# dorny/test-reporter — results appear directly on the pull request.
+#   lint ──────┐
+#              ├──► smoke ──► regression ──► ai-analysis (on failure only)
+#   unit-test ─┘
+#
+# lint and unit-test run in parallel for fastest feedback.
+# smoke and regression each spin up their own fresh Docker stack so they are
+# fully isolated; the stack is torn down at the end of the job regardless of
+# outcome.
+# ai-analysis downloads JUnit XMLs uploaded by the test jobs and calls the
+# GitHub Models API to produce a Markdown summary on the Actions Summary tab.
 #
 # Artifacts retained for 7 days:
-#   smoke-report/                — Playwright HTML report (smoke)
-#   regression-report/           — Playwright HTML report (regression)
-#   smoke-traces-screenshots/    — Traces + screenshots (smoke failures only)
-#   regression-traces-screenshots/ — Traces + screenshots (regression failures)
-#   docker-logs                  — Container stderr/stdout (failures only)
+#   smoke-report/                 — Playwright HTML report (smoke)
+#   smoke-junit/                  — JUnit XML (consumed by ai-analysis)
+#   smoke-traces-screenshots/     — Traces + screenshots on failure
+#   regression-report/            — Playwright HTML report (regression)
+#   regression-junit/             — JUnit XML (consumed by ai-analysis)
+#   regression-traces-screenshots/ — Traces + screenshots on failure
+#   docker-logs-smoke/            — Container logs on smoke failure
+#   docker-logs-regression/       — Container logs on regression failure
 # ──────────────────────────────────────────────────────────────────────────────
 
 name: Ecommerce CI Pipeline
 
 on:
-  # Run on every push to any branch
   push:
     branches: ["**"]
-
-  # Run on every pull request against any branch
   pull_request:
     branches: ["**"]
-
-  # Allow manual triggering from the GitHub Actions UI
   workflow_dispatch:
 
 # dorny/test-reporter needs write access to create GitHub Check annotations
@@ -38,23 +41,19 @@ permissions:
   contents: read
 
 jobs:
-  ecommerce-ci:
-    name: Lint · Unit · Build · Validate · Smoke · Regression · AI Analysis
+
+  # ════════════════════════════════════════════════════════════════════════════
+  # JOB 1 — Syntax Check
+  # Runs node --check over every .js file in tests/, pages/ and src/.
+  # No Docker, no Playwright binaries — completes in seconds.
+  # ════════════════════════════════════════════════════════════════════════════
+  lint:
+    name: Syntax Check
     runs-on: ubuntu-latest
-
     steps:
-
-      # ══════════════════════════════════════════════════════════════════════════
-      # PRE-BUILD: Lint & Unit Tests (no containers required)
-      # ══════════════════════════════════════════════════════════════════════════
-
-      # ── 1. Checkout ───────────────────────────────────────────────────────────
       - name: Checkout code
         uses: actions/checkout@v4
 
-      # ── 2. Set up Node.js ─────────────────────────────────────────────────────
-      # Placed early so lint and unit tests can run before Docker build starts,
-      # giving the fastest possible feedback on code quality issues.
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
@@ -62,34 +61,41 @@ jobs:
           cache: "npm"
           cache-dependency-path: playwright/package-lock.json
 
-      # ── 3. Install Playwright + browser binaries ──────────────────────────────
-      - name: Install Playwright dependencies
+      - name: Install dependencies
         working-directory: playwright
-        run: |
-          # npm ci uses the lock file for a reproducible install
-          npm ci
-          # Install only Chromium — keeps the download fast in CI
-          npx playwright install --with-deps chromium
+        run: npm ci
 
-      # ── 4. Syntax check (npm run lint) ───────────────────────────────────────
-      # Runs `node --check` over every .js file in tests/, pages/, and src/.
-      # No ESLint config or additional devDependencies needed.
-      # A syntax error here fails fast before any container is started.
       - name: Syntax check — npm run lint
         working-directory: playwright
         run: npm run lint
 
-      # ── 5. Unit tests ────────────────────────────────────────────────────────
-      # Uses Node.js built-in test runner (node:test, available since Node 18).
-      # No Jest / Mocha dependency needed.
-      # Outputs both human-readable spec on stdout AND JUnit XML for GitHub Checks.
-      - name: Unit tests — npm run test:unit
+  # ════════════════════════════════════════════════════════════════════════════
+  # JOB 2 — Unit Tests (runs in parallel with lint)
+  # Node built-in test runner (node:test, no Jest/Mocha).
+  # Publishes GitHub Check annotations via dorny/test-reporter.
+  # ════════════════════════════════════════════════════════════════════════════
+  unit-test:
+    name: Unit Tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: playwright/package-lock.json
+
+      - name: Install dependencies
+        working-directory: playwright
+        run: npm ci
+
+      - name: Run unit tests — npm run test:unit
         working-directory: playwright
         run: npm run test:unit
 
-      # ── 6. Publish unit test results → GitHub Checks ─────────────────────────
-      # dorny/test-reporter reads the JUnit XML and posts pass/fail annotations
-      # directly on the pull request "Checks" tab.
       - name: Publish unit test results to GitHub Checks
         if: always()
         uses: dorny/test-reporter@v1
@@ -97,30 +103,43 @@ jobs:
           name: "Unit Tests"
           path: "playwright/unit-results.xml"
           reporter: java-junit
-          fail-on-error: false   # reporter failure should not block the pipeline
+          fail-on-error: false
 
-      # ══════════════════════════════════════════════════════════════════════════
-      # INFRASTRUCTURE: Docker Build, Start, Health Validation
-      # ══════════════════════════════════════════════════════════════════════════
+  # ════════════════════════════════════════════════════════════════════════════
+  # JOB 3 — Smoke Tests
+  # Requires lint and unit-test to both pass.
+  # Builds the Docker stack from scratch on a fresh runner, waits for health,
+  # then runs the smoke suite. Reports, traces and JUnit XML are uploaded as
+  # artifacts before the stack is torn down.
+  # ════════════════════════════════════════════════════════════════════════════
+  smoke:
+    name: Smoke Tests
+    runs-on: ubuntu-latest
+    needs: [lint, unit-test]
 
-      # ── 7. Build Docker images ────────────────────────────────────────────────
-      - name: Build Docker containers
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: playwright/package-lock.json
+
+      - name: Install Playwright + Chromium
+        working-directory: playwright
         run: |
-          # Builds web (nginx + static files), api (Node.js/Express)
-          # and pulls postgres:15-alpine if not cached
-          docker compose -f ecommerce/docker-compose.yml build
+          npm ci
+          npx playwright install --with-deps chromium
 
-      # ── 8. Start the full stack ───────────────────────────────────────────────
-      - name: Start application and database
-        run: |
-          # -d: detached mode — all three services start in the background
-          docker compose -f ecommerce/docker-compose.yml up -d
+      - name: Build Docker images
+        run: docker compose -f ecommerce/docker-compose.yml build
 
-      # ── 9. Wait for API + DB health (/health endpoint) ───────────────────────
-      # The Express API exposes GET /health → { status: "ok" | "db-down" }.
-      # We wait until status == "ok", which confirms both the API and the
-      # PostgreSQL connection are ready.  This is checked BEFORE the web app
-      # because the web pod depends on the API being healthy.
+      - name: Start application stack
+        run: docker compose -f ecommerce/docker-compose.yml up -d
+
       - name: Wait for API and DB health — GET /health
         run: |
           echo "Polling http://localhost:8081/health …"
@@ -129,71 +148,44 @@ jobs:
               | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('status','unreachable'))" \
               2>/dev/null || echo "unreachable")
             echo "  Attempt $i / 30 — API health: $STATUS"
-            if [ "$STATUS" = "ok" ]; then
-              echo "✓ API and database are healthy"
-              exit 0
-            fi
+            if [ "$STATUS" = "ok" ]; then echo "✓ API and DB healthy"; exit 0; fi
             sleep 5
           done
-          echo "✗ API/DB did not become healthy within 150 s — dumping logs"
+          echo "✗ API/DB not healthy within 150 s"
           docker compose -f ecommerce/docker-compose.yml logs api db
           exit 1
 
-      # ── 10. Wait for web app (nginx, port 3000) ───────────────────────────────
-      - name: Wait for web app to be reachable — port 3000
+      - name: Wait for web app — port 3000
         run: |
-          echo "Polling http://localhost:3000 …"
           for i in $(seq 1 20); do
             if curl --silent --fail http://localhost:3000 > /dev/null; then
-              echo "✓ Web app is ready (attempt $i / 20)"
-              exit 0
+              echo "✓ Web app ready (attempt $i / 20)"; exit 0
             fi
-            echo "  Attempt $i / 20 — not ready, waiting 3 s …"
-            sleep 3
+            echo "  Attempt $i / 20 — waiting 3 s …"; sleep 3
           done
-          echo "✗ Web app did not become reachable within 60 s"
+          echo "✗ Web app not reachable within 60 s"
           docker compose -f ecommerce/docker-compose.yml logs web
           exit 1
 
-      # ── 11. API functional validation — GET /api/products ────────────────────
-      # Confirms that the database was seeded correctly by asserting the API
-      # returns at least 1 product.  If the DB seed failed, tests would pass
-      # on an empty product list — this step catches that early.
-      - name: Validate API — GET /api/products returns seeded products
+      - name: Validate API — GET /api/products
         run: |
-          echo "Calling http://localhost:8081/api/products …"
-          RESPONSE=$(curl --silent --fail http://localhost:8081/api/products)
-          COUNT=$(echo "$RESPONSE" \
-            | python3 -c "import sys,json; print(len(json.load(sys.stdin)))" \
-            2>/dev/null || echo "0")
-          echo "Products returned by API: $COUNT"
-          if [ "$COUNT" -lt 1 ]; then
-            echo "✗ /api/products returned 0 products — DB seed likely failed"
-            exit 1
-          fi
-          echo "✓ API validation passed ($COUNT products found)"
+          COUNT=$(curl --silent --fail http://localhost:8081/api/products \
+            | python3 -c "import sys,json; print(len(json.load(sys.stdin)))" 2>/dev/null || echo "0")
+          echo "Products returned: $COUNT"
+          [ "$COUNT" -ge 1 ] || { echo "✗ /api/products returned 0 — DB seed likely failed"; exit 1; }
+          echo "✓ API validation passed"
 
-      # ══════════════════════════════════════════════════════════════════════════
-      # TEST EXECUTION: Smoke → Regression
-      # ══════════════════════════════════════════════════════════════════════════
-
-      # ── 12. Run smoke tests ───────────────────────────────────────────────────
-      # Covers critical "go / no-go" flows: homepage load, add-to-cart, cart nav.
-      # continue-on-error keeps the pipeline alive so we can upload artifacts.
-      # The job is explicitly failed later (step 22) if this step failed.
       - name: Run Playwright smoke tests
-        id: smoke
+        id: smoke-run
         working-directory: playwright
         env:
-          # Each suite writes to its own folder so artifacts don't overwrite
           PLAYWRIGHT_HTML_REPORT: smoke-report
           PLAYWRIGHT_JUNIT_OUTPUT: smoke-results.xml
         run: npm run test:smoke
         continue-on-error: true
 
-      # ── 13. Publish smoke results → GitHub Checks ────────────────────────────
-      - name: Publish smoke test results to GitHub Checks
-        if: always() && steps.smoke.outcome != 'skipped'
+      - name: Publish smoke results to GitHub Checks
+        if: always()
         uses: dorny/test-reporter@v1
         with:
           name: "Playwright Smoke Tests"
@@ -201,33 +193,123 @@ jobs:
           reporter: jest-junit
           fail-on-error: false
 
-      # ── 14. Upload smoke HTML report ──────────────────────────────────────────
-      - name: Upload smoke test HTML report
-        if: always() && steps.smoke.outcome != 'skipped'
+      - name: Upload smoke HTML report
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: smoke-report
           path: playwright/smoke-report/
           retention-days: 7
 
-      # ── 15. Upload smoke traces and screenshots (failures only) ───────────────
-      # Playwright writes traces (.zip) and screenshots (.png) into test-results/
-      # when a test fails (trace: on-first-retry, screenshot: only-on-failure).
-      # These are the most useful artefacts for debugging UI failures.
+      - name: Upload smoke JUnit XML
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: smoke-junit
+          path: playwright/smoke-results.xml
+          retention-days: 7
+
       - name: Upload smoke traces and screenshots
-        if: steps.smoke.outcome == 'failure'
+        if: steps.smoke-run.outcome == 'failure'
         uses: actions/upload-artifact@v4
         with:
           name: smoke-traces-screenshots
           path: playwright/test-results/
           retention-days: 7
 
-      # ── 16. Run regression tests (gated: only if smoke passed) ───────────────
-      # Covers broader cart and checkout flows.
-      # Skipped entirely when smoke fails — no point regressing a broken build.
+      - name: Collect Docker logs
+        if: steps.smoke-run.outcome == 'failure'
+        run: |
+          docker compose -f ecommerce/docker-compose.yml logs > docker-smoke.log 2>&1
+
+      - name: Upload Docker logs
+        if: steps.smoke-run.outcome == 'failure'
+        uses: actions/upload-artifact@v4
+        with:
+          name: docker-logs-smoke
+          path: docker-smoke.log
+          retention-days: 7
+
+      - name: Shut down Docker stack
+        if: always()
+        run: docker compose -f ecommerce/docker-compose.yml down -v
+
+      - name: Fail job if smoke tests failed
+        if: steps.smoke-run.outcome == 'failure'
+        run: |
+          echo "Smoke suite failed — see smoke-report artifact and GitHub Checks for details."
+          exit 1
+
+  # ════════════════════════════════════════════════════════════════════════════
+  # JOB 4 — Regression Tests
+  # Runs only when smoke passes (skipped automatically when smoke fails).
+  # Brings up its own fresh Docker stack on a new runner — fully isolated.
+  # ════════════════════════════════════════════════════════════════════════════
+  regression:
+    name: Regression Tests
+    runs-on: ubuntu-latest
+    needs: [smoke]
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: playwright/package-lock.json
+
+      - name: Install Playwright + Chromium
+        working-directory: playwright
+        run: |
+          npm ci
+          npx playwright install --with-deps chromium
+
+      - name: Build Docker images
+        run: docker compose -f ecommerce/docker-compose.yml build
+
+      - name: Start application stack
+        run: docker compose -f ecommerce/docker-compose.yml up -d
+
+      - name: Wait for API and DB health — GET /health
+        run: |
+          echo "Polling http://localhost:8081/health …"
+          for i in $(seq 1 30); do
+            STATUS=$(curl --silent http://localhost:8081/health \
+              | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('status','unreachable'))" \
+              2>/dev/null || echo "unreachable")
+            echo "  Attempt $i / 30 — API health: $STATUS"
+            if [ "$STATUS" = "ok" ]; then echo "✓ API and DB healthy"; exit 0; fi
+            sleep 5
+          done
+          echo "✗ API/DB not healthy within 150 s"
+          docker compose -f ecommerce/docker-compose.yml logs api db
+          exit 1
+
+      - name: Wait for web app — port 3000
+        run: |
+          for i in $(seq 1 20); do
+            if curl --silent --fail http://localhost:3000 > /dev/null; then
+              echo "✓ Web app ready (attempt $i / 20)"; exit 0
+            fi
+            echo "  Attempt $i / 20 — waiting 3 s …"; sleep 3
+          done
+          echo "✗ Web app not reachable within 60 s"
+          docker compose -f ecommerce/docker-compose.yml logs web
+          exit 1
+
+      - name: Validate API — GET /api/products
+        run: |
+          COUNT=$(curl --silent --fail http://localhost:8081/api/products \
+            | python3 -c "import sys,json; print(len(json.load(sys.stdin)))" 2>/dev/null || echo "0")
+          echo "Products returned: $COUNT"
+          [ "$COUNT" -ge 1 ] || { echo "✗ /api/products returned 0 — DB seed likely failed"; exit 1; }
+          echo "✓ API validation passed"
+
       - name: Run Playwright regression tests
-        id: regression
-        if: steps.smoke.outcome == 'success'
+        id: regression-run
         working-directory: playwright
         env:
           PLAYWRIGHT_HTML_REPORT: regression-report
@@ -235,9 +317,8 @@ jobs:
         run: npm run test:regression
         continue-on-error: true
 
-      # ── 17. Publish regression results → GitHub Checks ───────────────────────
-      - name: Publish regression test results to GitHub Checks
-        if: always() && steps.regression.outcome != 'skipped'
+      - name: Publish regression results to GitHub Checks
+        if: always()
         uses: dorny/test-reporter@v1
         with:
           name: "Playwright Regression Tests"
@@ -245,62 +326,85 @@ jobs:
           reporter: jest-junit
           fail-on-error: false
 
-      # ── 18. Upload regression HTML report ─────────────────────────────────────
-      - name: Upload regression test HTML report
-        if: always() && steps.regression.outcome != 'skipped'
+      - name: Upload regression HTML report
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: regression-report
           path: playwright/regression-report/
           retention-days: 7
 
-      # ── 19. Upload regression traces and screenshots (failures only) ──────────
+      - name: Upload regression JUnit XML
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: regression-junit
+          path: playwright/regression-results.xml
+          retention-days: 7
+
       - name: Upload regression traces and screenshots
-        if: steps.regression.outcome == 'failure'
+        if: steps.regression-run.outcome == 'failure'
         uses: actions/upload-artifact@v4
         with:
           name: regression-traces-screenshots
           path: playwright/test-results/
           retention-days: 7
 
-      # ══════════════════════════════════════════════════════════════════════════
-      # FAILURE DIAGNOSTICS
-      # ══════════════════════════════════════════════════════════════════════════
-
-      # ── 20. Collect Docker container logs ─────────────────────────────────────
       - name: Collect Docker logs
-        if: steps.smoke.outcome == 'failure' || steps.regression.outcome == 'failure'
+        if: steps.regression-run.outcome == 'failure'
         run: |
-          docker compose -f ecommerce/docker-compose.yml logs > docker-compose.log 2>&1
-          echo "Container logs captured → docker-compose.log"
+          docker compose -f ecommerce/docker-compose.yml logs > docker-regression.log 2>&1
 
-      # ── 21. Upload Docker logs ────────────────────────────────────────────────
       - name: Upload Docker logs
-        if: steps.smoke.outcome == 'failure' || steps.regression.outcome == 'failure'
+        if: steps.regression-run.outcome == 'failure'
         uses: actions/upload-artifact@v4
         with:
-          name: docker-logs
-          path: docker-compose.log
+          name: docker-logs-regression
+          path: docker-regression.log
           retention-days: 7
 
-      # ── 22. AI failure analysis → Job Summary ────────────────────────────────
-      # Runs only when at least one test suite failed.
-      #
-      # What it does:
-      #   1. Parses JUnit XML reports (smoke-results.xml, regression-results.xml)
-      #   2. Extracts each failing test name + error message
-      #   3. Calls GitHub Models API (gpt-4o-mini, authenticated with GITHUB_TOKEN)
-      #      to produce a structured QA analysis table
-      #   4. Falls back to deterministic heuristic analysis if the API is
-      #      unavailable (no extra secrets required)
-      #   5. Writes the analysis as Markdown to $GITHUB_STEP_SUMMARY
-      #      (visible in Actions → job run → "Summary" tab)
-      #
-      # AI output columns per failing test:
-      #   Failed Suite | Probable Root Cause | Classification (UI/API/DB/Env) |
-      #   Impacted Feature | Retry Recommendation | Suggested Owner | Draft Bug Title
-      - name: AI failure analysis — write job summary
-        if: steps.smoke.outcome == 'failure' || steps.regression.outcome == 'failure'
+      - name: Shut down Docker stack
+        if: always()
+        run: docker compose -f ecommerce/docker-compose.yml down -v
+
+      - name: Fail job if regression tests failed
+        if: steps.regression-run.outcome == 'failure'
+        run: |
+          echo "Regression suite failed — see regression-report artifact and GitHub Checks for details."
+          exit 1
+
+  # ════════════════════════════════════════════════════════════════════════════
+  # JOB 5 — AI Failure Analysis
+  # Runs only when smoke or regression failed (always() ensures it is not
+  # skipped when a dependency job failed or was skipped).
+  # Downloads the JUnit XMLs uploaded by the test jobs, calls the GitHub
+  # Models API (gpt-4o-mini) and writes a Markdown table to the Summary tab.
+  # ════════════════════════════════════════════════════════════════════════════
+  ai-analysis:
+    name: AI Failure Analysis
+    runs-on: ubuntu-latest
+    needs: [smoke, regression]
+    if: always() && (needs.smoke.result == 'failure' || needs.regression.result == 'failure')
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Download smoke JUnit XML
+        uses: actions/download-artifact@v4
+        with:
+          name: smoke-junit
+          path: playwright/
+        continue-on-error: true   # artifact may not exist if smoke job was skipped
+
+      - name: Download regression JUnit XML
+        uses: actions/download-artifact@v4
+        with:
+          name: regression-junit
+          path: playwright/
+        continue-on-error: true   # artifact may not exist if regression was skipped
+
+      - name: Run AI failure analysis — write job summary
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           SMOKE_RESULTS: playwright/smoke-results.xml
@@ -310,23 +414,3 @@ jobs:
           WORKFLOW: ${{ github.workflow }}
         run: python3 playwright/scripts/ai_analysis.py
 
-      # ══════════════════════════════════════════════════════════════════════════
-      # TEARDOWN
-      # ══════════════════════════════════════════════════════════════════════════
-
-      # ── 23. Shut down containers (always runs) ────────────────────────────────
-      - name: Shut down Docker containers
-        if: always()
-        run: |
-          # -v removes named volumes (DB data) so the runner is left clean
-          docker compose -f ecommerce/docker-compose.yml down -v
-
-      # ── 24. Fail the job if any suite failed ──────────────────────────────────
-      # continue-on-error masked failures in steps 12 and 16 so artifacts
-      # could be uploaded.  This step restores the red build signal.
-      - name: Fail pipeline if tests failed
-        if: steps.smoke.outcome == 'failure' || steps.regression.outcome == 'failure'
-        run: |
-          echo "One or more test suites failed."
-          echo "Download the uploaded HTML reports and traces to investigate."
-          exit 1
