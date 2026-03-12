@@ -15,11 +15,12 @@ module.exports = defineConfig({
     workers: 1,
 
     // Reporters:
-    //  - 'list'  → real-time console feedback
-    //  - 'html'  → interactive HTML report
-    //             The output folder is controlled by the PLAYWRIGHT_HTML_REPORT
-    //             environment variable so that smoke and regression CI steps
-    //             each produce a separate artifact directory.
+    //  - 'list'    → real-time console feedback
+    //  - 'html'    → interactive HTML report
+    //               Output folder controlled by PLAYWRIGHT_HTML_REPORT env var
+    //               so smoke and regression CI steps write separate directories.
+    //  - 'junit'   → JUnit XML consumed by dorny/test-reporter for GitHub Checks
+    //               Output file controlled by PLAYWRIGHT_JUNIT_OUTPUT env var.
     reporter: [
         ['list'],
         [
@@ -29,19 +30,29 @@ module.exports = defineConfig({
                 open: 'never',
             },
         ],
+        // JUnit XML — enables GitHub Check annotations via dorny/test-reporter
+        [
+            'junit',
+            {
+                outputFile: process.env.PLAYWRIGHT_JUNIT_OUTPUT || 'test-results.xml',
+            },
+        ],
     ],
 
     use: {
         // Base URL — override with PLAYWRIGHT_BASE_URL env var if needed
         baseURL: process.env.PLAYWRIGHT_BASE_URL || 'http://localhost:3000',
 
-        // Capture a full trace on the first retry to help debug failures
+        // Capture a full Playwright trace on the first retry (viewable in report)
         trace: 'on-first-retry',
+
+        // Automatically capture a screenshot when a test fails
+        screenshot: 'only-on-failure',
 
         // Fixed viewport keeps screenshots and layout consistent across runs
         viewport: { width: 1280, height: 720 },
 
-        // Always headless; set to false locally when watching the browser
+        // Always headless; set to false locally when you want to watch the browser
         headless: true,
     },
 

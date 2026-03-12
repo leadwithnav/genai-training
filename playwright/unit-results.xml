@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="utf-8"?>
+<testsuites>
+	<testsuite name="parseCartCount" time="0.008891" disabled="0" errors="0" tests="8" failures="0" skipped="0" hostname="DESKTOP-K58TJ1I">
+		<testcase name="returns 0 for a &amp;quot;0&amp;quot; string" time="0.001796" classname="test" file="C:\Users\Lenovo\.gemini\antigravity\scratch\genai_training\playwright\tests\unit\utils.test.js"/>
+		<testcase name="parses a positive integer string correctly" time="0.000296" classname="test" file="C:\Users\Lenovo\.gemini\antigravity\scratch\genai_training\playwright\tests\unit\utils.test.js"/>
+		<testcase name="parses a multi-digit integer string correctly" time="0.000212" classname="test" file="C:\Users\Lenovo\.gemini\antigravity\scratch\genai_training\playwright\tests\unit\utils.test.js"/>
+		<testcase name="trims leading and trailing whitespace before parsing" time="0.000637" classname="test" file="C:\Users\Lenovo\.gemini\antigravity\scratch\genai_training\playwright\tests\unit\utils.test.js"/>
+		<testcase name="returns 0 for an empty string" time="0.000808" classname="test" file="C:\Users\Lenovo\.gemini\antigravity\scratch\genai_training\playwright\tests\unit\utils.test.js"/>
+		<testcase name="returns 0 for a non-numeric string" time="0.000617" classname="test" file="C:\Users\Lenovo\.gemini\antigravity\scratch\genai_training\playwright\tests\unit\utils.test.js"/>
+		<testcase name="returns 0 for a negative value" time="0.000345" classname="test" file="C:\Users\Lenovo\.gemini\antigravity\scratch\genai_training\playwright\tests\unit\utils.test.js"/>
+		<testcase name="accepts a numeric argument directly" time="0.000236" classname="test" file="C:\Users\Lenovo\.gemini\antigravity\scratch\genai_training\playwright\tests\unit\utils.test.js"/>
+	</testsuite>
+	<testsuite name="formatPrice" time="0.001572" disabled="0" errors="0" tests="6" failures="0" skipped="0" hostname="DESKTOP-K58TJ1I">
+		<testcase name="formats a whole number to 2 decimal places" time="0.000404" classname="test" file="C:\Users\Lenovo\.gemini\antigravity\scratch\genai_training\playwright\tests\unit\utils.test.js"/>
+		<testcase name="formats a float with 1 decimal to 2 decimal places" time="0.000302" classname="test" file="C:\Users\Lenovo\.gemini\antigravity\scratch\genai_training\playwright\tests\unit\utils.test.js"/>
+		<testcase name="formats a float with 2 decimals unchanged" time="0.000134" classname="test" file="C:\Users\Lenovo\.gemini\antigravity\scratch\genai_training\playwright\tests\unit\utils.test.js"/>
+		<testcase name="formats a string numeric value" time="0.000092" classname="test" file="C:\Users\Lenovo\.gemini\antigravity\scratch\genai_training\playwright\tests\unit\utils.test.js"/>
+		<testcase name="returns &amp;quot;0.00&amp;quot; for a non-numeric string" time="0.000124" classname="test" file="C:\Users\Lenovo\.gemini\antigravity\scratch\genai_training\playwright\tests\unit\utils.test.js"/>
+		<testcase name="returns &amp;quot;0.00&amp;quot; for an empty string" time="0.000086" classname="test" file="C:\Users\Lenovo\.gemini\antigravity\scratch\genai_training\playwright\tests\unit\utils.test.js"/>
+	</testsuite>
+	<!-- tests 14 -->
+	<!-- suites 2 -->
+	<!-- pass 14 -->
+	<!-- fail 0 -->
+	<!-- cancelled 0 -->
+	<!-- skipped 0 -->
+	<!-- todo 0 -->
+	<!-- duration_ms 231.3335 -->
+</testsuites>

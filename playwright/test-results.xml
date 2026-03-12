@@ -1,0 +1,10 @@
+<testsuites id="" name="" tests="3" failures="0" skipped="0" errors="0" time="5.104611">
+<testsuite name="regression\regression.spec.js" timestamp="2026-03-12T05:42:32.436Z" hostname="regression" tests="3" failures="0" skipped="0" time="2.71" errors="0">
+<testcase name="Regression Suite — Cart &amp; Checkout Flows › TC-R01: Add item to cart then remove it — cart should be empty" classname="regression\regression.spec.js" time="0.867">
+</testcase>
+<testcase name="Regression Suite — Cart &amp; Checkout Flows › TC-R02: Cart item quantity — increment then decrement" classname="regression\regression.spec.js" time="1.112">
+</testcase>
+<testcase name="Regression Suite — Cart &amp; Checkout Flows › TC-R03: Checkout button should open the checkout confirmation modal" classname="regression\regression.spec.js" time="0.731">
+</testcase>
+</testsuite>
+</testsuites>
