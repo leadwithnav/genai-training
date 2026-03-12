@@ -25,7 +25,8 @@ test.describe('Smoke Suite — Critical Flows', () => {
     // ── TC-S01 ────────────────────────────────────────────────────────────────
     test('TC-S01: Homepage should load and display products', async ({ page }) => {
         // Verify the browser tab title matches the expected app name
-        await expect(page).toHaveTitle(/GenAI Store/i);
+        // TODO: revert — intentionally wrong title to trigger AI Analysis
+        await expect(page).toHaveTitle(/GenAI Superstore/i);
 
         // Products are rendered with the .card CSS class by app.js
         const products = page.locator('.card');
