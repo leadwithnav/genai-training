@@ -59,7 +59,9 @@ def parse_junit(path: str) -> list:
     for suite in suites:
         suite_name = suite.get("name", "unknown-suite")
         for tc in suite.findall("testcase"):
-            failure_el = tc.find("failure") or tc.find("error")
+            failure_el = tc.find("failure")
+            if failure_el is None:
+                failure_el = tc.find("error")
             if failure_el is not None:
                 failures.append(
                     {
