@@ -100,13 +100,14 @@ def build_prompt(failures: list) -> str:
         "  * Playwright test suites covering ecommerce workflows\n\n"
         "The following tests failed in CI. Each entry shows [suite] test-name: error-message.\n"
         "Infer the impacted feature and root cause from the test name and error message alone.\n\n"
-        "{}\n\n"
+        f"{failure_block}\n\n"
         "For EACH failed test return a JSON object inside a JSON array.\n"
         "Use exactly these string keys:\n"
         "  failed_suite, probable_root_cause, classification (UI|API|DB|ENV),\n"
-        "  impacted_feature, retry_recommendation, suggested_owner, draft_bug_title\n\n"
+        "  impacted_feature, retry_recommendation, suggested_owner, draft_bug_title,\n"
+        "  suggested_fix_location (file and line number to fix, e.g. 'src/app.js:42' or 'unknown')\n\n"
         "Return ONLY the JSON array -- no markdown fences, no commentary."
-    ).format(failure_block)
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -208,9 +209,10 @@ _COLUMNS = [
     ("Probable Root Cause", "probable_root_cause"),
     ("Classification",      "classification"),
     ("Impacted Feature",    "impacted_feature"),
-    ("Retry",              "retry_recommendation"),
-    ("Suggested Owner",    "suggested_owner"),
-    ("Draft Bug Title",    "draft_bug_title"),
+    ("Retry",               "retry_recommendation"),
+    ("Suggested Owner",     "suggested_owner"),
+    ("Draft Bug Title",     "draft_bug_title"),
+    ("Suggested Fix Location", "suggested_fix_location"),
 ]
 
 
