@@ -35,10 +35,12 @@ on:
   workflow_dispatch:
 
 # dorny/test-reporter needs write access to create GitHub Check annotations
+# models: read is required for the GitHub Models API (gpt-4o-mini) in ai-analysis
 permissions:
   checks: write
   pull-requests: write
   contents: read
+  models: read
 
 jobs:
 
@@ -190,7 +192,7 @@ jobs:
         with:
           name: "Playwright Smoke Tests"
           path: "playwright/smoke-results.xml"
-          reporter: jest-junit
+          reporter: java-junit
           fail-on-error: false
 
       - name: Upload smoke HTML report
@@ -323,7 +325,7 @@ jobs:
         with:
           name: "Playwright Regression Tests"
           path: "playwright/regression-results.xml"
-          reporter: jest-junit
+          reporter: java-junit
           fail-on-error: false
 
       - name: Upload regression HTML report
