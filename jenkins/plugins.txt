@@ -1,0 +1,10 @@
+workflow-aggregator
+git
+github
+credentials-binding
+pipeline-stage-view
+blueocean
+docker-workflow
+nodejs
+junit
+ws-cleanup

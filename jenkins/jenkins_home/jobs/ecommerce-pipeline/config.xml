@@ -1,0 +1,161 @@
+<?xml version='1.1' encoding='UTF-8'?>
+<flow-definition plugin="workflow-job">
+  <description>Lab 14 Pipeline</description>
+  <keepDependencies>false</keepDependencies>
+  <definition class="org.jenkinsci.plugins.workflow.cps.CpsFlowDefinition" plugin="workflow-cps">
+    <script><![CDATA[
+  // ──────────────────────────────────────────────────────────────────────────────
+  // Ecommerce CI Pipeline — Jenkins Declarative Pipeline
+  //
+  // Stage graph (mirrors the GitHub Actions workflow):
+  //
+  //   Syntax Check ────┐
+  //                    ├──► Smoke Tests ──► Regression Tests
+  //   Unit Tests ──────┘
+  //
+  // Syntax Check and Unit Tests run in parallel for fastest feedback.
+  // Smoke and Regression each spin up their own fresh Docker stack so they are
+  // fully isolated; the stack is torn down at the end of the stage regardless
+  // of outcome.
+  // ──────────────────────────────────────────────────────────────────────────────
+
+  pipeline {
+      agent any
+
+      environment {
+          ECOMMERCE_COMPOSE = 'ecommerce/docker-compose.yml'
+      }
+
+      options {
+          timeout(time: 30, unit: 'MINUTES')
+          buildDiscarder(logRotator(numToKeepStr: '20'))
+      }
+
+      stages {
+
+          // ════════════════════════════════════════════════════════════════════
+          // Checkout source code from SCM
+          // ════════════════════════════════════════════════════════════════════
+          stage('Checkout') {
+              steps {
+                  // Explicit git checkout for classic pipeline jobs
+                  git branch: 'master', url: 'https://github.com/leadwithnav/genai-training.git'
+              }
+          }
+
+          // ════════════════════════════════════════════════════════════════════
+          // PARALLEL: Syntax Check + Unit Tests
+          // ════════════════════════════════════════════════════════════════════
+          stage('Lint & Unit Tests') {
+              parallel {
+
+                  // ── Syntax Check ──────────────────────────────────────────
+                  stage('Syntax Check') {
+                      steps {
+                          dir('playwright') {
+                              sh 'npm install'
+                              sh 'npm run lint'
+                          }
+                      }
+                  }
+                  // ── Unit Tests ────────────────────────────────────────────
+                  stage('Unit Tests') {
+                      steps {
+                          dir('playwright') {
+                              sh 'npm install'
+                              sh 'npm run test:unit'
+                          }
+                      }
+                      post {
+                          always {
+                              junit testResults: 'playwright/unit-results.xml',
+                                    allowEmptyResults: true
+                          }
+                      }
+                  }
+              }
+          }
+
+          // ════════════════════════════════════════════════════════════════════
+          // Smoke Tests
+          // Builds the Docker stack, waits for health, runs Playwright smoke
+          // suite, then tears everything down.
+          // ════════════════════════════════════════════════════════════════════
+          stage('Smoke Tests') {
+              steps {
+                  // Install Playwright dependencies only (browsers pre-installed)
+                  dir('playwright') {
+                      sh 'npm install'
+                      sh '''
+                          export PLAYWRIGHT_HTML_REPORT=smoke-report
+                          export PLAYWRIGHT_JUNIT_OUTPUT=smoke-results.xml
+                          npm run test:smoke
+                      '''
+                  }
+              }
+              post {
+                  always {
+                      junit testResults: 'playwright/smoke-results.xml',
+                            allowEmptyResults: true
+                      archiveArtifacts artifacts: 'playwright/smoke-report/**',
+                                       allowEmptyArchive: true
+                  }
+                  failure {
+                      archiveArtifacts artifacts: 'playwright/test-results/**',
+                                       allowEmptyArchive: true
+                  }
+              }
+          }
+
+          // ════════════════════════════════════════════════════════════════════
+          // Regression Tests
+          // Only runs when smoke passes. Brings up its own fresh Docker stack.
+          // ════════════════════════════════════════════════════════════════════
+          stage('Regression Tests') {
+              steps {
+                  // Install Playwright dependencies only (browsers pre-installed)
+                  dir('playwright') {
+                      sh 'npm install'
+                      sh '''
+                          export PLAYWRIGHT_HTML_REPORT=regression-report
+                          export PLAYWRIGHT_JUNIT_OUTPUT=regression-results.xml
+                          npm run test:regression
+                      '''
+                  }
+              }
+              post {
+                  always {
+                      junit testResults: 'playwright/regression-results.xml',
+                            allowEmptyResults: true
+                      archiveArtifacts artifacts: 'playwright/regression-report/**',
+                                       allowEmptyArchive: true
+                  }
+                  failure {
+                      archiveArtifacts artifacts: 'playwright/test-results/**',
+                                       allowEmptyArchive: true
+                  }
+              }
+          }
+      }
+
+      // ══════════════════════════════════════════════════════════════════════════
+      // Post-pipeline notifications
+      // ══════════════════════════════════════════════════════════════════════════
+      post {
+          failure {
+              echo '❌ Pipeline failed — check stage logs and archived artifacts for details.'
+          }
+          success {
+              echo '✅ All stages passed.'
+          }
+          always {
+              cleanWs()
+          }
+      }
+  }
+]]></script>
+    <sandbox>true</sandbox>
+  </definition>
+  <triggers/>
+  <disabled>false</disabled>
+</flow-definition>
