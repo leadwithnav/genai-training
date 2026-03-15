@@ -17,6 +17,7 @@ def get_relevant_docs(prompt: str, top_k: int = 5):
     Loads the persistent FAISS vectorstore and returns the top_k most relevant documents for the prompt.
     Returns a list of dicts with 'id' and 'content'.
     """
+    
     embeddings = OpenAIEmbeddings()
     if not os.path.exists(_FAISS_INDEX_ABS):
         return []
@@ -27,4 +28,5 @@ def get_relevant_docs(prompt: str, top_k: int = 5):
         doc_id = doc.metadata.get('id', None)
         content = doc.page_content
         results.append({"id": doc_id or "", "content": content})
+    print(results)
     return results
